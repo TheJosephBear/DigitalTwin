@@ -3,8 +3,10 @@ import os
 import zipfile
 import io
 from fileinput import filename 
+from flask_cors import CORS, cross_origin
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
+CORS(app)
 
 @app.route("/")
 def home():
@@ -13,7 +15,10 @@ def home():
 @app.route('/upload', methods=['POST'])
 def upload():
     received_data = request.form['myData']
-    file_path = os.path.join(os.path.dirname(__file__), 'project', 'saveData.txt')
+    save_dir = os.path.join(os.path.dirname(__file__), 'project')
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    file_path = os.path.join(save_dir, 'saveData.txt')
     with open(file_path, 'w') as file:
         file.write(received_data)
     data = {'message': 'Done', 'code': 'SUCCESS'}
@@ -32,6 +37,7 @@ def uploadFiles():
         return make_response(jsonify(data), 201)
 
 @app.route("/download")
+@cross_origin(origin='http://127.0.0.1:5001')
 def download():
     file_path = os.path.join(os.path.dirname(__file__), 'project', 'saveData.txt')
     if os.path.exists(file_path):
@@ -40,23 +46,16 @@ def download():
         abort(404, description="File not found")
 
 @app.route("/downloadModels")
+@cross_origin(origin='http://127.0.0.1:5001')
 def downloadModels():
     models_folder = os.path.join(os.path.dirname(__file__), 'project', 'models')
-    
-    if not os.path.exists(models_folder):
-        abort(404, description="Models folder not found")
-    
-    memory_file = io.BytesIO()
-    
-    with zipfile.ZipFile(memory_file, 'w') as zip_file:
-        for root, dirs, files in os.walk(models_folder):
-            for file in files:
-                file_path = os.path.join(root, file)
-                zip_file.write(file_path, os.path.relpath(file_path, models_folder))
-    
-    memory_file.seek(0)
-    
-    return send_file(memory_file, mimetype='application/zip', as_attachment=True, attachment_filename='models.zip')
+    file_name = request.args.get('fileName')
+    if not file_name:
+        abort(400, description="File name not provided")
+    file_path = os.path.join(models_folder, file_name)
+    if not os.path.exists(file_path):
+        abort(404, description="File not found")
+    return send_from_directory(models_folder, file_name, as_attachment=True)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
