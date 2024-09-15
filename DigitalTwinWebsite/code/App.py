@@ -17,30 +17,47 @@ def home():
 def upload_editor_data():
     project_name = request.form['projectName']
     received_data = request.form['myData']
+    
+    try:
+        # Use ProjectManager to get or create the project and save the data
+        project = ProjectManager.create_new_project(project_name)
+        file_path = project.get_save_data_path()
 
-    # Use ProjectManager to get the project and save the data
-    project = ProjectManager.create_new_project(project_name)
-    file_path = project.get_save_data_path()
+        # Save the data to the specified file path
+        with open(file_path, 'w') as file:
+            file.write(received_data)
 
-    with open(file_path, 'w') as file:
-        file.write(received_data)
+        data = {'message': 'Editor data saved successfully', 'code': 'SUCCESS'}
+        return make_response(jsonify(data), 201)
 
-    data = {'message': 'Done', 'code': 'SUCCESS'}
-    return make_response(jsonify(data), 201)
-
+    except Exception as e:
+        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
 
 @app.route('/upload_model_files', methods=['POST'])
 def upload_model_files():
     project_name = request.form['projectName']
+    
+    if 'file' not in request.files:
+        return make_response(jsonify({'message': 'No file part in the request', 'code': 'ERROR'}), 400)
+    
     f = request.files['file']
 
-    # Use ProjectManager to get the project and save the model file
-    project = ProjectManager.create_new_project(project_name)
-    file_path = project.get_model_path(f.filename)
+    if f.filename == '':
+        return make_response(jsonify({'message': 'No selected file', 'code': 'ERROR'}), 400)
+    
+    try:
+        # Use ProjectManager to get or create the project and save the model file
+        project = ProjectManager.create_new_project(project_name)
+        file_path = project.get_model_path(f.filename)
 
-    f.save(file_path)
-    data = {'message': 'Done', 'code': 'SUCCESS'}
-    return make_response(jsonify(data), 201)
+        # Save the uploaded file to the specified model path
+        f.save(file_path)
+        data = {'message': 'Model file uploaded successfully', 'code': 'SUCCESS'}
+        return make_response(jsonify(data), 201)
+
+    except Exception as e:
+        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+
 
 
 @app.route("/download")
@@ -48,14 +65,20 @@ def upload_model_files():
 def download():
     project_name = request.args.get('projectName')
 
-    # Get the project and file path
-    project = ProjectManager.create_new_project(project_name)
-    file_path = project.get_save_data_path()
+    try:
+        # Get the project and file path
+        project = ProjectManager.create_new_project(project_name)
+        file_path = project.get_save_data_path()
 
-    if os.path.exists(file_path):
-        return send_file(file_path, as_attachment=True)
-    else:
-        abort(404, description="File not found")
+        # Check if the file exists before attempting to send it
+        if os.path.exists(file_path):
+            return send_file(file_path, as_attachment=True)
+        else:
+            return abort(404, description="Save data file not found")
+
+    except Exception as e:
+        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+
 
 
 @app.route("/downloadModels")
@@ -63,13 +86,21 @@ def download():
 def downloadModels():
     project_name = request.args.get('projectName')
     file_name = request.args.get('fileName')
-    project = ProjectManager.create_new_project(project_name)
-    file_path = project.get_model_path(file_name)
 
-    if os.path.exists(file_path):
-        return send_from_directory(project.models_dir, file_name, as_attachment=True)
-    else:
-        abort(404, description="File not found")
+    try:
+        # Get the project and file path for the model
+        project = ProjectManager.create_new_project(project_name)
+        file_path = project.get_model_path(file_name)
+
+        # Check if the file exists before attempting to send it
+        if os.path.exists(file_path):
+            return send_from_directory(directory=project.models_dir, filename=file_name, as_attachment=True)
+        else:
+            return abort(404, description="Model file not found")
+
+    except Exception as e:
+        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+
 
 @app.route('/createProject', methods=['POST'])
 def create_project():
@@ -87,14 +118,16 @@ def create_project():
     return make_response(jsonify(data), 201)
 
 
-@app.route('/editProjectName', methods=['PUT'])
+@app.route('/editProjectName', methods=['POST'])
 def edit_project_name():
     old_name = request.form['oldProjectName']
     new_name = request.form['newProjectName']
     
     try:
         # Edit the project name
+        print(f"editing the project name {old_name} {new_name}")
         ProjectManager.edit_project_name(old_name, new_name)
+        print("updated!")
         data = {'message': 'Project name updated', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 200)
     except FileNotFoundError:
