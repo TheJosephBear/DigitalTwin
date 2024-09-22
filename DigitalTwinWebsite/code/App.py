@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, session, flash, redirect, url
 import os
 import zipfile
 import io
+import traceback
 from fileinput import filename 
 from flask_cors import CORS, cross_origin
 from ProjectManager import ProjectManager, Project
@@ -63,7 +64,7 @@ def upload_model_files():
 @app.route("/download")
 @cross_origin(origin='http://127.0.0.1:5001')
 def download():
-    project_name = request.args.get('projectName')
+    project_name = request.args.get('projectName').strip()
 
     try:
         # Get the project and file path
@@ -84,22 +85,32 @@ def download():
 @app.route("/downloadModels")
 @cross_origin(origin='http://127.0.0.1:5001')
 def downloadModels():
-    project_name = request.args.get('projectName')
-    file_name = request.args.get('fileName')
+    project_name = request.args.get('projectName').strip()
+    file_name = request.args.get('fileName').strip()
+    print(project_name)
+    print(file_name)
 
     try:
         # Get the project and file path for the model
         project = ProjectManager.create_new_project(project_name)
+        print(f"created new project: {project}")
         file_path = project.get_model_path(file_name)
+        print(f"filepath: {file_path}")
 
         # Check if the file exists before attempting to send it
         if os.path.exists(file_path):
-            return send_from_directory(directory=project.models_dir, filename=file_name, as_attachment=True)
+            print(f"we good path exists")
+            return send_from_directory(directory=project.models_dir, path=file_name, as_attachment=True)
         else:
+            print(f"aborted, path doesnt exist")
             return abort(404, description="Model file not found")
 
     except Exception as e:
-        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+        error_message = str(e)
+        error_trace = traceback.format_exc()
+        print(f"Error occurred: {error_message}")
+        print(f"Traceback: {error_trace}")
+        return make_response(jsonify({'message': error_message, 'code': 'ERROR'}), 500)
 
 
 @app.route('/createProject', methods=['POST'])

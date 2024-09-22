@@ -54,8 +54,10 @@ class Project:
     def setup_project_directories(self):
         """Create the project directory and models directory if they don't exist."""
         if not os.path.exists(self.project_dir):
+            print("directory for project data didnt exist, i created a new one")
             os.makedirs(self.project_dir)
         if not os.path.exists(self.models_dir):
+            print("directory for project models didnt exist, i created a new one")
             os.makedirs(self.models_dir)
 
     def get_save_data_path(self):
