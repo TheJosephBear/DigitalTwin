@@ -42,6 +42,26 @@ class ProjectManager:
                 return file.read()
         else:
             raise FileNotFoundError(f"Save data for project {name} not found")
+        
+    @staticmethod
+    def duplicate_project(old_name, new_name):
+        """Duplicate an existing project directory to a new name."""
+        old_path = os.path.join(ProjectManager.projects_root, old_name)
+        new_path = os.path.join(ProjectManager.projects_root, new_name)
+
+        # Check if the original project exists
+        if not os.path.exists(old_path):
+            raise FileNotFoundError(f"Project {old_name} not found")
+
+        # Check if the new project name already exists
+        if os.path.exists(new_path):
+            raise FileExistsError(f"Project {new_name} already exists")
+
+        # Copy the entire project directory to the new location
+        shutil.copytree(old_path, new_path)
+
+        # Return a new Project instance for the duplicated project
+        return Project(new_name)
 
 
 class Project:

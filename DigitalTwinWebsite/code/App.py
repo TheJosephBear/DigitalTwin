@@ -147,6 +147,25 @@ def edit_project_name():
         return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
 
 
+@app.route('/duplicate_project', methods=['POST'])
+def duplicate_project():
+    old_name = request.form['projectName']
+    new_name = old_name+" -copy"
+    
+    try:
+        # Duplicate the project
+        ProjectManager.duplicate_project(old_name, new_name)
+        
+        data = {'message': 'Project duplicated successfully', 'code': 'SUCCESS'}
+        return make_response(jsonify(data), 201)
+    except FileNotFoundError:
+        return make_response(jsonify({'message': 'Original project not found', 'code': 'ERROR'}), 404)
+    except FileExistsError:
+        return make_response(jsonify({'message': 'New project name already exists', 'code': 'ERROR'}), 409)
+    except Exception as e:
+        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+
+
 @app.route('/deleteProject', methods=['DELETE'])
 def delete_project():
     project_name = request.form['projectName']
