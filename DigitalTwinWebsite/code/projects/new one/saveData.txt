@@ -1,0 +1,1 @@
+{"projectName":"new one","map":{"modelAssetID":"","spawnPosition":{"x":0.0,"y":0.0,"z":0.0}},"modelAssets":[],"decorationPresets":[],"decorationsInstantiated":[]}
