@@ -194,5 +194,22 @@ def get_all_projects():
     except Exception as e:
         return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
 
+@app.route('/generate_iframe', methods=['GET'])
+def generate_iframe():
+    project_name = request.args.get('projectName').strip()
+    
+    try:
+        # Generate the URL for the Unity Viewer
+        viewer_url = url_for('static', filename=f'Unity/ViewerBuild/index.html?projectName={project_name}', _external=True)
+        
+        # Generate the iframe HTML code
+        iframe_code = f'<iframe src="{viewer_url}" width="800" height="600"></iframe>'
+        
+        # Return the iframe code as a JSON response
+        return make_response(jsonify({'iframe_code': iframe_code, 'message': 'Iframe generated successfully', 'code': 'SUCCESS'}), 200)
+    
+    except Exception as e:
+        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
