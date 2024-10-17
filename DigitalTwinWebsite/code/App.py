@@ -201,7 +201,8 @@ def generate_iframe():
     try:
         # Generate the URL for the Unity Viewer
         viewer_url = url_for('static', filename=f'Unity/ViewerBuild/index.html?projectName={project_name}', _external=True)
-        
+        print("its giving")
+        print(viewer_url)
         # Generate the iframe HTML code
         iframe_code = f'<iframe src="{viewer_url}" width="800" height="600"></iframe>'
         
