@@ -3,12 +3,23 @@ import os
 import zipfile
 import io
 import traceback
+import pymongo
+import bcrypt
 from fileinput import filename 
 from flask_cors import CORS, cross_origin
 from ProjectManager import ProjectManager, Project
+from AccountManager import AccountManager
+from DB import DB
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 CORS(app)
+app.secret_key = 'BAD_SECRET_KEY'
+
+
+db = DB()
+accountmanager = AccountManager()
+accountmanager.load_collection(db)
+
 
 @app.route("/")
 def home():
@@ -215,6 +226,41 @@ def generate_iframe():
     
     except Exception as e:
         return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+    
+@app.route("/login", methods=["GET","POST"])
+def login():
+    name = request.form.get("username")
+    password = request.form.get("password")
+    try:
+        print(f"looking for user {name} {password}")
+        print(str(accountmanager.find_user_id(name, password)))
+        session['logged_in_id'] = str(accountmanager.find_user_id(name, password)) # this entire thing needs an absolute rework
+        if session['logged_in_id'] != "None":
+            data = {'message': 'Logged in sucessfuly', 'code': 'SUCCESS'}
+            return make_response(jsonify(data), 201)
+    except Exception as e:
+        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+    
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    name = request.form.get("username")
+    password = request.form.get("password")
+    try:
+        if not accountmanager.check_existing_user(name):
+            if accountmanager.register_new_user(name, password) == True:
+                data = {'message': 'Registered sucessfuly', 'code': 'SUCCESS'}
+                return make_response(jsonify(data), 201)
+            else:
+                print("Registration failed on the database side")
+                return make_response(jsonify({'message': "Registration failed on the database side", 'code': 'ERROR'}), 500)
+        else:
+          print("user already exists")
+          return make_response(jsonify({'message': "user already exists", 'code': 'ERROR'}), 500)
+    except Exception as e:
+        print("idk why it failed")
+        return make_response(jsonify({'message': "failed", 'code': 'ERROR'}), 500)
+    
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
