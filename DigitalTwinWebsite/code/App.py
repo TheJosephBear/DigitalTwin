@@ -79,13 +79,16 @@ def download():
 
     try:
         # Get the project and file path
+        print("Creating new project")
         project = ProjectManager.create_new_project(project_name)
+        print("Finding file_path")
         file_path = project.get_save_data_path()
-
+        print("Checking if path exists")
         # Check if the file exists before attempting to send it
         if os.path.exists(file_path):
             return send_file(file_path, as_attachment=True)
         else:
+            print("Path doesnt exist")
             return abort(404, description="Save data file not found")
 
     except Exception as e:
