@@ -28,7 +28,7 @@ def home():
 
 @app.route('/upload_editor_data', methods=['POST'])
 def upload_editor_data():
-    project_name = request.form.get("projectName")
+    project_name = request.form.get("project_name")
     received_data = request.form.get("myData") 
 
     service_response, service_data = ProjectService.upload_editor_data(project_name, received_data)
@@ -42,7 +42,7 @@ def upload_editor_data():
 
 @app.route('/upload_model_files', methods=['POST'])
 def upload_model_files():
-    project_name = request.form.get("projectName")
+    project_name = request.form.get("project_name")
 
     service_response, service_data = ProjectService.upload_model(project_name, request.files)
 
@@ -56,7 +56,7 @@ def upload_model_files():
 @app.route("/download")
 @cross_origin(origin='http://127.0.0.1:5001')
 def download():
-    project_name = request.args.get('projectName').strip()
+    project_name = request.args.get('project_name').strip()
 
     service_response, service_data = ProjectService.download_data(project_name)
 
@@ -70,7 +70,7 @@ def download():
 @app.route("/downloadModels")
 @cross_origin(origin='http://127.0.0.1:5001')
 def downloadModels():
-    project_name = request.args.get('projectName').strip()
+    project_name = request.args.get('project_name').strip()
     file_name = request.args.get('fileName').strip()
 
     service_response, service_data = ProjectService.download_models(project_name, file_name)
@@ -83,7 +83,7 @@ def downloadModels():
 
 @app.route('/createProject', methods=['POST'])
 def create_project():
-    project_name = request.form.get("projectName")
+    project_name = request.form.get("project_name")
     
     service_response, service_data = ProjectService.create_project_unique(project_name)
 
@@ -110,7 +110,7 @@ def edit_project_name():
 
 @app.route('/duplicate_project', methods=['POST'])
 def duplicate_project():
-    old_name = request.form.get("projectName")
+    old_name = request.form.get("project_name")
     new_name = old_name+" -copy"
     
     service_response, service_data = ProjectService.duplicate_project(old_name, new_name)
@@ -124,13 +124,13 @@ def duplicate_project():
 
 @app.route('/deleteProject', methods=['DELETE'])
 def delete_project():
-    project_name = request.form.get("projectName")
+    project_name = request.form.get("project_name")
     
     service_response, service_data = ProjectService.delete_project(project_name)
-
-    if service_response == 201:
+    
+    if service_response == 200:
         data = {'message': 'Project deleted successfully', 'code': 'SUCCESS'}
-        return make_response(jsonify(data), 201)
+        return make_response(jsonify(data), 200)
     else:
         try_response_error_codes(service_response)
 
@@ -149,9 +149,9 @@ def get_all_projects():
    
 @app.route('/generate_iframe', methods=['GET'])
 def generate_iframe():
-    project_name = request.args.get('projectName').strip()
+    project_name = request.args.get('project_name').strip()
 
-    service_response, service_data = tools.generate_iframe()
+    service_response, service_data = tools.generate_iframe(project_name)
 
     if service_response == 200:
         return make_response(jsonify({'iframe_code': service_data, 'message': 'Iframe generated successfully', 'code': 'SUCCESS'}), 200)
@@ -163,6 +163,10 @@ def generate_iframe():
 def login():
     name = request.form.get("username")
     password = request.form.get("password")   
+
+    if not session.get('logged_in_id') :
+        session['logged_in_id'] = ""
+
     g = session['logged_in_id']
     
     service_response, service_data = account_service.try_login(g, name, password)

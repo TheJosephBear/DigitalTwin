@@ -70,7 +70,7 @@ class ProjectService:
         project_path = os.path.join(ProjectService.projects_root, name)
         if os.path.exists(project_path):
             return 409, None
-        project = ProjectService.create_new_project(name)
+        ProjectService.create_new_project(name)
         return 201, None
 
 
