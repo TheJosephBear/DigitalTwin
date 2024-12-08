@@ -1,0 +1,9 @@
+[database]
+database_name = "digitalTwin"
+
+[server_responses]
+success = "Success"
+server_error_message = "Unknown server error"
+not_found = "Not found"
+conflict = "Conflict"
+bad_request = "Bad request"

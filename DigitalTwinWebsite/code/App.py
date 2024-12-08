@@ -1,269 +1,204 @@
-from flask import Flask, render_template, request, session, flash, redirect, url_for, get_flashed_messages, jsonify, abort, make_response, send_file, send_from_directory, abort, jsonify
+from flask import Flask, request, session, render_template, make_response, jsonify, url_for, send_file, send_from_directory, abort, g
 import os
-import zipfile
-import io
-import traceback
-import pymongo
-import bcrypt
-from fileinput import filename 
+from dotenv import load_dotenv
+import tomli
 from flask_cors import CORS, cross_origin
-from ProjectManager import ProjectManager, Project
-from AccountManager import AccountManager
-from DB import DB
+from services.project_service import ProjectService
+from services.account_service import AccountService
+from tools import tools
+from repository.mongo_repository import MongoRepository
 
-app = Flask(__name__, template_folder='templates', static_folder='static')
+app = Flask(__name__)
 CORS(app)
-app.secret_key = 'BAD_SECRET_KEY'
+load_dotenv()
+app.secret_key = os.getenv("SECRET_KEY")
 
+config_path = os.path.join(os.path.dirname(__file__), "../conf.toml")
+with open(config_path, "rb") as file:
+    config = tomli.load(file)
 
-db = DB()
-accountmanager = AccountManager()
-accountmanager.load_collection(db)
+repo = MongoRepository(uri=os.getenv("DB_URL"), database_name=config["database"]["database_name"])
+account_service = AccountService(repo)
 
 
 @app.route("/")
+@app.route("/home")
 def home():
-    return render_template("main.html")
+    return render_template("home.html")
 
 @app.route('/upload_editor_data', methods=['POST'])
 def upload_editor_data():
-    project_name = request.form['projectName']
-    received_data = request.form['myData']
+    project_name = request.form.get("project_name")
+    received_data = request.form.get("myData") 
+
+    service_response, service_data = ProjectService.upload_editor_data(project_name, received_data)
     
-    try:
-        # Use ProjectManager to get or create the project and save the data
-        project = ProjectManager.create_new_project(project_name)
-        file_path = project.get_save_data_path()
-
-        # Save the data to the specified file path
-        with open(file_path, 'w') as file:
-            file.write(received_data)
-
-        data = {'message': 'Editor data saved successfully', 'code': 'SUCCESS'}
+    if  service_response== 200:
+        data = {'message': config["server_responses"]["success"], 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
+    else:
+        try_response_error_codes(service_response)
 
-    except Exception as e:
-        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
 
 @app.route('/upload_model_files', methods=['POST'])
 def upload_model_files():
-    project_name = request.form['projectName']
-    
-    if 'file' not in request.files:
-        return make_response(jsonify({'message': 'No file part in the request', 'code': 'ERROR'}), 400)
-    
-    f = request.files['file']
+    project_name = request.form.get("project_name")
 
-    if f.filename == '':
-        return make_response(jsonify({'message': 'No selected file', 'code': 'ERROR'}), 400)
-    
-    try:
-        # Use ProjectManager to get or create the project and save the model file
-        project = ProjectManager.create_new_project(project_name)
-        file_path = project.get_model_path(f.filename)
+    service_response, service_data = ProjectService.upload_model(project_name, request.files)
 
-        # Save the uploaded file to the specified model path
-        f.save(file_path)
-        data = {'message': 'Model file uploaded successfully', 'code': 'SUCCESS'}
+    if service_response == 201:
+        data = {'message': config["server_responses"]["success"], 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
-
-    except Exception as e:
-        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
-
-
+    else:
+        try_response_error_codes(service_response)
+    
 
 @app.route("/download")
 @cross_origin(origin='http://127.0.0.1:5001')
 def download():
-    project_name = request.args.get('projectName').strip()
+    project_name = request.args.get('project_name').strip()
 
-    try:
-        # Get the project and file path
-        print("Creating new project")
-        project = ProjectManager.create_new_project(project_name)
-        print("Finding file_path")
-        file_path = project.get_save_data_path()
-        print("Checking if path exists")
-        # Check if the file exists before attempting to send it
-        if os.path.exists(file_path):
-            return send_file(file_path, as_attachment=True)
-        else:
-            print("Path doesnt exist")
-            return abort(404, description="Save data file not found")
+    service_response, service_data = ProjectService.download_data(project_name)
 
-    except Exception as e:
-        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
-
+    if service_response == 200:
+        data = service_data
+        return make_response(data, 200)
+    else:
+        try_response_error_codes(service_response)
 
 
 @app.route("/downloadModels")
 @cross_origin(origin='http://127.0.0.1:5001')
 def downloadModels():
-    project_name = request.args.get('projectName').strip()
+    project_name = request.args.get('project_name').strip()
     file_name = request.args.get('fileName').strip()
-    print(project_name)
-    print(file_name)
 
-    try:
-        # Get the project and file path for the model
-        project = ProjectManager.create_new_project(project_name)
-        print(f"created new project: {project}")
-        file_path = project.get_model_path(file_name)
-        print(f"filepath: {file_path}")
+    service_response, service_data = ProjectService.download_models(project_name, file_name)
 
-        # Check if the file exists before attempting to send it
-        if os.path.exists(file_path):
-            print(f"we good path exists")
-            return send_from_directory(directory=project.models_dir, path=file_name, as_attachment=True)
-        else:
-            print(f"aborted, path doesnt exist")
-            return abort(404, description="Model file not found")
-
-    except Exception as e:
-        error_message = str(e)
-        error_trace = traceback.format_exc()
-        print(f"Error occurred: {error_message}")
-        print(f"Traceback: {error_trace}")
-        return make_response(jsonify({'message': error_message, 'code': 'ERROR'}), 500)
-
+    if service_response == 200:
+        return send_from_directory(directory=service_data[0], path=service_data[1], as_attachment=True)
+    else:
+        try_response_error_codes(service_response)
+    
 
 @app.route('/createProject', methods=['POST'])
 def create_project():
-    project_name = request.form['projectName']
+    project_name = request.form.get("project_name")
     
-    # Check if the project already exists
-    project_path = os.path.join(ProjectManager.projects_root, project_name)
-    if os.path.exists(project_path):
-        return make_response(jsonify({'message': 'Project already exists', 'code': 'ERROR'}), 409)
-    
-    # Create the new project
-    project = ProjectManager.create_new_project(project_name)
-    
-    data = {'message': 'Project created', 'code': 'SUCCESS'}
-    return make_response(jsonify(data), 201)
+    service_response, service_data = ProjectService.create_project_unique(project_name)
+
+    if service_response == 201:
+        data = {'message': 'Project created', 'code': 'SUCCESS'}
+        return make_response(jsonify(data), 201)
+    else:
+        try_response_error_codes(service_response)
 
 
 @app.route('/editProjectName', methods=['POST'])
 def edit_project_name():
-    old_name = request.form['oldProjectName']
-    new_name = request.form['newProjectName']
+    old_name = request.form.get("oldProjectName")
+    new_name = request.form.get("newProjectName")
     
-    try:
-        # Edit the project name
-        print(f"editing the project name {old_name} {new_name}")
-        ProjectManager.edit_project_name(old_name, new_name)
-        print("updated!")
+    service_response, service_data = ProjectService.edit_project_name(old_name, new_name)
+
+    if service_response == 200:
         data = {'message': 'Project name updated', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 200)
-    except FileNotFoundError:
-        return make_response(jsonify({'message': 'Project not found', 'code': 'ERROR'}), 404)
-    except Exception as e:
-        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+    else:
+        try_response_error_codes(service_response)
 
 
 @app.route('/duplicate_project', methods=['POST'])
 def duplicate_project():
-    old_name = request.form['projectName']
+    old_name = request.form.get("project_name")
     new_name = old_name+" -copy"
     
-    try:
-        # Duplicate the project
-        ProjectManager.duplicate_project(old_name, new_name)
-        
+    service_response, service_data = ProjectService.duplicate_project(old_name, new_name)
+
+    if service_response == 201:
         data = {'message': 'Project duplicated successfully', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
-    except FileNotFoundError:
-        return make_response(jsonify({'message': 'Original project not found', 'code': 'ERROR'}), 404)
-    except FileExistsError:
-        return make_response(jsonify({'message': 'New project name already exists', 'code': 'ERROR'}), 409)
-    except Exception as e:
-        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+    else:
+        try_response_error_codes(service_response)
 
 
 @app.route('/deleteProject', methods=['DELETE'])
 def delete_project():
-    project_name = request.form['projectName']
+    project_name = request.form.get("project_name")
     
-    try:
-        # Delete the project
-        ProjectManager.delete_project(project_name)
-        data = {'message': 'Project deleted', 'code': 'SUCCESS'}
+    service_response, service_data = ProjectService.delete_project(project_name)
+    
+    if service_response == 200:
+        data = {'message': 'Project deleted successfully', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 200)
-    except FileNotFoundError:
-        return make_response(jsonify({'message': 'Project not found', 'code': 'ERROR'}), 404)
-    except Exception as e:
-        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+    else:
+        try_response_error_codes(service_response)
+
 
 @app.route('/getAllProjects', methods=['GET'])
 def get_all_projects():
-    projects_root = os.path.join(os.path.dirname(__file__), 'projects')
     
-    # List all directories in the project root
-    try:
-        project_names = [name for name in os.listdir(projects_root) if os.path.isdir(os.path.join(projects_root, name))]
-        
-        data = {'projects': project_names, 'code': 'SUCCESS'}
-        return make_response(jsonify(data), 200)
-    
-    except Exception as e:
-        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+    service_response, service_data = ProjectService.get_all_projects()
 
+    if service_response == 200:
+        data = {'projects': service_data, 'code': 'SUCCESS'}
+        return make_response(jsonify(data), 201)
+    else:
+        try_response_error_codes(service_response)
+
+   
 @app.route('/generate_iframe', methods=['GET'])
 def generate_iframe():
-    project_name = request.args.get('projectName').strip()
-    
-    try:
-        # Manually constructing the URL with correct encoding for spaces
-        base_url = url_for('static', filename='Unity/ViewerBuild/index.html', _external=True)
-        
-        # Use urllib.parse.quote to encode the project_name properly, replacing spaces with %20
-        from urllib.parse import quote
-        encoded_project_name = quote(project_name)  # Encodes spaces as %20
-        
-        viewer_url = f"{base_url}?projectName={encoded_project_name}"
-        
-        iframe_code = f'<iframe src="{viewer_url}" width="800" height="600"></iframe>'
-        
-        # Return the iframe code as a JSON response
-        return make_response(jsonify({'iframe_code': iframe_code, 'message': 'Iframe generated successfully', 'code': 'SUCCESS'}), 200)
-    
-    except Exception as e:
-        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+    project_name = request.args.get('project_name').strip()
+
+    service_response, service_data = tools.generate_iframe(project_name)
+
+    if service_response == 200:
+        return make_response(jsonify({'iframe_code': service_data, 'message': 'Iframe generated successfully', 'code': 'SUCCESS'}), 200)
+    else:
+        try_response_error_codes(service_response)
+
     
 @app.route("/login", methods=["GET","POST"])
 def login():
     name = request.form.get("username")
-    password = request.form.get("password")
-    try:
-        print(f"looking for user {name} {password}")
-        print(str(accountmanager.find_user_id(name, password)))
-        session['logged_in_id'] = str(accountmanager.find_user_id(name, password)) # this entire thing needs an absolute rework
-        if session['logged_in_id'] != "None":
-            data = {'message': 'Logged in sucessfuly', 'code': 'SUCCESS'}
-            return make_response(jsonify(data), 201)
-    except Exception as e:
-        return make_response(jsonify({'message': str(e), 'code': 'ERROR'}), 500)
+    password = request.form.get("password")   
+
+    if not session.get('logged_in_id') :
+        session['logged_in_id'] = ""
+
+    g = session['logged_in_id']
     
+    service_response, service_data = account_service.try_login(g, name, password)
+
+    if service_response == 201:
+        data = {'message': 'Logged in sucessfuly', 'code': 'SUCCESS'}
+        return make_response(jsonify(data), 201)
+    else:
+        try_response_error_codes(service_response)
+
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
     name = request.form.get("username")
     password = request.form.get("password")
-    try:
-        if not accountmanager.check_existing_user(name):
-            if accountmanager.register_new_user(name, password) == True:
-                data = {'message': 'Registered sucessfuly', 'code': 'SUCCESS'}
-                return make_response(jsonify(data), 201)
-            else:
-                print("Registration failed on the database side")
-                return make_response(jsonify({'message': "Registration failed on the database side", 'code': 'ERROR'}), 500)
-        else:
-          print("user already exists")
-          return make_response(jsonify({'message': "user already exists", 'code': 'ERROR'}), 500)
-    except Exception as e:
-        print("idk why it failed")
-        return make_response(jsonify({'message': "failed", 'code': 'ERROR'}), 500)
-    
+
+    service_response, service_data = account_service.try_register(name, password)
+
+    if service_response == 201:
+        data = {'message': 'Registered sucessfuly', 'code': 'SUCCESS'}
+        return make_response(jsonify(data), 201)
+    else:
+        try_response_error_codes(service_response)
+   
+
+def try_response_error_codes(service_response):
+    if service_response == 404:
+        return abort(404, description=config["server_responses"]["not_found"])
+    elif service_response == 409:
+        return abort(409, description=config["server_responses"]["conflict"])
+    elif service_response == 500:
+        return abort(500, description=config["server_responses"]["server_error_message"])
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
