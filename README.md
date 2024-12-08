@@ -1,9 +1,10 @@
 # Digital twin - Server
-This is a flask server that hosts main functionality of digital twin.<br>
-The server contains unity builds for Editor and Viewer.<br>
-On the servers website you can access and use the Editor build.<br>
-App.py contains an API used by the unity builds for saving and loading data.<br>
-
+This repository contains the Flask server that powers the main functionality of the Digital Twin project. The server is responsible for hosting Unity builds and providing API endpoints for data management.
+## Running the application
+Run the app.py in visual studio code or type the following command in your terminal:
+```bash
+python app.py
+```
 ## Links to associated projects
 [Digital twin - client](https://github.com/TheJosephBear/DigitalTwin-Client) <br>
 [Digital twin - editor](https://github.com/TheJosephBear/DigitalTwin-UnityProjectEditor) <br>
