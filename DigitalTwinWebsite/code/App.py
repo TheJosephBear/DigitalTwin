@@ -71,7 +71,7 @@ def download():
 @cross_origin(origin='http://127.0.0.1:5001')
 def downloadModels():
     project_name = request.args.get('project_name').strip()
-    file_name = request.args.get('fileName').strip()
+    file_name = request.args.get('file_name').strip()
 
     service_response, service_data = ProjectService.download_models(project_name, file_name)
 

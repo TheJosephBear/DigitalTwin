@@ -59,7 +59,7 @@ class ProjectService:
             file_path = project.get_model_path(file_name)
 
             if os.path.exists(file_path):
-                return 200, {project.models_dir, file_name}
+                return 200, (project.models_dir, file_name)
             else:
                 return 404, None
         except Exception as e:
