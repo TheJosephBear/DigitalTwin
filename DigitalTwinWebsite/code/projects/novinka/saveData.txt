@@ -1,1 +1,0 @@
-{"projectName":"novinka","map":{"baseMap":{"modelID":"","isBaseMap":false},"variants":[]},"modelAssets":[],"interestPointManager":{"interestPoints":[{"position":{"x":0.0,"y":120.0,"z":-200.0},"eulerRotation":{"x":0.0,"y":0.0,"z":0.0}},{"position":{"x":0.0,"y":120.0,"z":-200.0},"eulerRotation":{"x":0.0,"y":0.0,"z":0.0}}]}}
