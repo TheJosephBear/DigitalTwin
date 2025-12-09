@@ -1,5 +1,7 @@
 import os
 import shutil   
+import uuid
+import json
 
 class ProjectService:
 
@@ -66,14 +68,22 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def create_project_unique(name):
-        project_path = os.path.join(ProjectService.projects_root, name)
-        if os.path.exists(project_path):
-            return 409, None
-        ProjectService.create_new_project(name)
-        return 201, None
+    def create_project_with_data(name, project_id):
+        try:
+            project = ProjectService.create_new_project(name)
+            file_path = project.get_save_data_path()
 
+            data = {
+                "projectName": name,
+                "projectId": project_id
+            }
 
+            with open(file_path, "w") as file:
+                file.write(json.dumps(data))
+
+            return 201, None
+        except Exception:
+            return 500, None
 
     @staticmethod
     def create_new_project(name):
@@ -135,11 +145,33 @@ class ProjectService:
     @staticmethod
     def get_all_projects():
         try:
-            projects_root = ProjectService.projects_root
-            project_names = [name for name in os.listdir(projects_root) if os.path.isdir(os.path.join(projects_root, name))]
-            return 200, project_names
-        except Exception as e:
+            root = ProjectService.projects_root
+            projects = []
+
+            for name in os.listdir(root):
+                project_path = os.path.join(root, name)
+                if not os.path.isdir(project_path):
+                    continue
+
+                save_path = os.path.join(project_path, "saveData.txt")
+                if os.path.exists(save_path):
+                    with open(save_path, "r") as f:
+                        try:
+                            data = json.load(f)
+                            projects.append({
+                                "projectName": data.get("projectName"),
+                                "projectId": data.get("projectId")
+                            })
+                        except:
+                            continue
+
+            return 200, projects  # Return list directly
+
+        except Exception:
             return 500, None
+
+
+
 
 class Project:
     def __init__(self, name):
@@ -156,6 +188,11 @@ class Project:
         if not os.path.exists(self.models_dir):
             print("directory for project models didnt exist, i created a new one")
             os.makedirs(self.models_dir)
+
+        save_path = self.get_save_data_path()
+        if not os.path.exists(self.get_save_data_path()):
+            with open(save_path, 'w') as f:
+                f.write("")
 
     def get_save_data_path(self):
         """Return the path for the saveData.txt file."""

@@ -71,7 +71,7 @@ def download():
 @cross_origin(origin='http://127.0.0.1:5001')
 def downloadModels():
     project_name = request.args.get('project_name').strip()
-    file_name = request.args.get('fileName').strip()
+    file_name = request.args.get('file_name').strip()
 
     service_response, service_data = ProjectService.download_models(project_name, file_name)
 
@@ -84,8 +84,9 @@ def downloadModels():
 @app.route('/createProject', methods=['POST'])
 def create_project():
     project_name = request.form.get("project_name")
+    project_id = request.form.get('project_id')
     
-    service_response, service_data = ProjectService.create_project_unique(project_name)
+    service_response, service_data = ProjectService.create_project_with_data(project_name, project_id)
 
     if service_response == 201:
         data = {'message': 'Project created', 'code': 'SUCCESS'}
@@ -141,6 +142,7 @@ def get_all_projects():
     service_response, service_data = ProjectService.get_all_projects()
 
     if service_response == 200:
+        print("SENDING DATA: ", service_data)
         data = {'projects': service_data, 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
     else:
