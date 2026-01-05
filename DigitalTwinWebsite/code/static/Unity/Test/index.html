@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Unity Web Player | geoStuff</title>
+    <title>Unity Web Player | test webgl build</title>
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
   </head>
@@ -20,7 +20,7 @@
       <div id="unity-footer">
         <div id="unity-logo-title-footer"></div>
         <div id="unity-fullscreen-button"></div>
-        <div id="unity-build-title">geoStuff</div>
+        <div id="unity-build-title">test webgl build</div>
       </div>
     </div>
     <script>
@@ -52,16 +52,16 @@
       }
 
       var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/EditorBuild.loader.js";
+      var loaderUrl = buildUrl + "/Test.loader.js";
       var config = {
         arguments: [],
-        dataUrl: buildUrl + "/EditorBuild.data.br",
-        frameworkUrl: buildUrl + "/EditorBuild.framework.js.br",
-        codeUrl: buildUrl + "/EditorBuild.wasm.br",
+        dataUrl: buildUrl + "/Test.data.br",
+        frameworkUrl: buildUrl + "/Test.framework.js.br",
+        codeUrl: buildUrl + "/Test.wasm.br",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
-        productName: "geoStuff",
-        productVersion: "0.1",
+        productName: "test webgl build",
+        productVersion: "0.1.0",
         showBanner: unityShowBanner,
         // errorHandler: function(err, url, line) {
         //    alert("error " + err + " occurred at line " + line);
