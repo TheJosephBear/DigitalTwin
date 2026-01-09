@@ -14,8 +14,8 @@ services:
         condition: service_healthy
     networks:
       - app-network
-    expose:
-      - "5000"
+    ports:
+      - "8050:5000"
     restart: on-failure
 
   mongodb:
