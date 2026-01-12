@@ -1,8 +1,16 @@
 from pymongo import MongoClient
+import urllib.parse
 from repository.repositoryClass import Repository
 
 class MongoRepository(Repository):
     def __init__(self, uri: str = "mongodb://localhost:27017", database_name: str = "digitalTwin"):
+        # Safely encode username and password in the URI
+        username = uri.split("//")[1].split(":")[0] if "@" in uri else None
+        password = uri.split(":")[2].rsplit("@", 1)[0] if "@" in uri else None
+        if username and password:
+            uri = uri.replace(username, urllib.parse.quote_plus(username))
+            uri = uri.replace(password, urllib.parse.quote_plus(password))
+
         self.uri = uri
         self.database_name = database_name
         self.client = None

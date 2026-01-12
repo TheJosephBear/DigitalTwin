@@ -1,7 +1,9 @@
 import bcrypt
+from repository.mongo_repository import MongoRepository
+from services.logger_service import LoggerService
 
 class AccountService:
-    def __init__(self, repository):
+    def __init__(self, repository: MongoRepository):
         self._collection_name = "users"
         self._repository = repository
 
@@ -46,7 +48,7 @@ class AccountService:
         # Use read_record to check for existence
         user = self._repository.read_record(self._collection_name, {"login": name})
         return user is not None
-    
+
     def try_login(self, sess, name, password):
         try:
             sess = str(self.find_user_id(name, password)) # this entire thing needs an absolute rework
@@ -54,15 +56,17 @@ class AccountService:
                 return 201, None
         except Exception as e:
             return 500, None
-        
+
     def try_register(self, name, password):
         try:
             if not self.check_existing_user(name):
                 if self.register_new_user(name, password) == True:
                     return 201, None
                 else:
+                    LoggerService.info(f"User exists!")
                     return 500, None
             else:
                 return 409, None
         except Exception as e:
+            LoggerService.info(f"Register exception: {e}")
             return 500, None

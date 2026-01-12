@@ -5,6 +5,7 @@ import tomli
 from flask_cors import CORS, cross_origin
 from services.project_service import ProjectService
 from services.account_service import AccountService
+from services.logger_service import LoggerService
 from tools import tools
 from repository.mongo_repository import MongoRepository
 
@@ -17,7 +18,15 @@ config_path = os.path.join(os.path.dirname(__file__), "../conf.toml")
 with open(config_path, "rb") as file:
     config = tomli.load(file)
 
-repo = MongoRepository(uri=os.getenv("DB_URL"), database_name=config["database"]["database_name"])
+
+# Configure logging through LoggerService
+LoggerService.configure_app_logger(app)
+LoggerService.log_startup_info()
+
+app.before_request(LoggerService.create_request_logger())
+app.after_request(LoggerService.create_response_logger())
+
+repo = MongoRepository(uri=os.getenv("MONGO_URI"), database_name=config["database"]["database_name"])
 account_service = AccountService(repo)
 
 
@@ -29,10 +38,10 @@ def home():
 @app.route('/upload_editor_data', methods=['POST'])
 def upload_editor_data():
     project_name = request.form.get("project_name")
-    received_data = request.form.get("myData") 
+    received_data = request.form.get("myData")
 
     service_response, service_data = ProjectService.upload_editor_data(project_name, received_data)
-    
+
     if  service_response== 200:
         data = {'message': config["server_responses"]["success"], 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
@@ -51,7 +60,7 @@ def upload_model_files():
         return make_response(jsonify(data), 201)
     else:
         try_response_error_codes(service_response)
-    
+
 
 @app.route("/download")
 @cross_origin(origin='http://127.0.0.1:5001')
@@ -79,12 +88,12 @@ def downloadModels():
         return send_from_directory(directory=service_data[0], path=service_data[1], as_attachment=True)
     else:
         try_response_error_codes(service_response)
-    
+
 
 @app.route('/createProject', methods=['POST'])
 def create_project():
     project_name = request.form.get("project_name")
-    
+
     service_response, service_data = ProjectService.create_project_unique(project_name)
 
     if service_response == 201:
@@ -98,7 +107,7 @@ def create_project():
 def edit_project_name():
     old_name = request.form.get("oldProjectName")
     new_name = request.form.get("newProjectName")
-    
+
     service_response, service_data = ProjectService.edit_project_name(old_name, new_name)
 
     if service_response == 200:
@@ -112,7 +121,7 @@ def edit_project_name():
 def duplicate_project():
     old_name = request.form.get("project_name")
     new_name = old_name+" -copy"
-    
+
     service_response, service_data = ProjectService.duplicate_project(old_name, new_name)
 
     if service_response == 201:
@@ -125,9 +134,9 @@ def duplicate_project():
 @app.route('/deleteProject', methods=['DELETE'])
 def delete_project():
     project_name = request.form.get("project_name")
-    
+
     service_response, service_data = ProjectService.delete_project(project_name)
-    
+
     if service_response == 200:
         data = {'message': 'Project deleted successfully', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 200)
@@ -137,7 +146,7 @@ def delete_project():
 
 @app.route('/getAllProjects', methods=['GET'])
 def get_all_projects():
-    
+
     service_response, service_data = ProjectService.get_all_projects()
 
     if service_response == 200:
@@ -146,7 +155,7 @@ def get_all_projects():
     else:
         try_response_error_codes(service_response)
 
-   
+
 @app.route('/generate_iframe', methods=['GET'])
 def generate_iframe():
     project_name = request.args.get('project_name').strip()
@@ -158,17 +167,17 @@ def generate_iframe():
     else:
         try_response_error_codes(service_response)
 
-    
+
 @app.route("/login", methods=["GET","POST"])
 def login():
     name = request.form.get("username")
-    password = request.form.get("password")   
+    password = request.form.get("password")
 
     if not session.get('logged_in_id') :
         session['logged_in_id'] = ""
 
     g = session['logged_in_id']
-    
+
     service_response, service_data = account_service.try_login(g, name, password)
 
     if service_response == 201:
@@ -182,15 +191,17 @@ def login():
 def register():
     name = request.form.get("username")
     password = request.form.get("password")
+    LoggerService.info(f"Register attempt for user: {name}")
 
     service_response, service_data = account_service.try_register(name, password)
+    LoggerService.info(f"Register response code: {service_response}")
 
     if service_response == 201:
         data = {'message': 'Registered sucessfuly', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
     else:
         try_response_error_codes(service_response)
-   
+
 
 def try_response_error_codes(service_response):
     if service_response == 404:
