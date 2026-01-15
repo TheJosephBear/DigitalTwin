@@ -19,22 +19,38 @@ class ProjectService:
             return 500, None
         
     @staticmethod
-    def upload_model(name, files):
-        if 'file' not in files:
-            return 400
-        file = files['file']
-        if file.filename == '':
+    def upload_model(project_name, asset_hash, files):
+        """
+        Uploads all files for a specific asset into the project.
+        Creates a folder named after asset_hash inside the project's models directory.
+        """
+        if not asset_hash:
             return 400, None
-        try:
-            # Use ProjectManager to get or create the project and save the model file
-            project = ProjectService.create_new_project(name)
-            file_path = project.get_model_path(file.filename)
 
-            # Save the uploaded file to the specified model path
-            file.save(file_path)
+        if not files:
+            return 400, None
+
+        try:
+            # Ensure the project exists
+            project = ProjectService.create_new_project(project_name)
+
+            # Create folder for this asset inside models_dir
+            asset_dir = os.path.join(project.models_dir, asset_hash)
+            os.makedirs(asset_dir, exist_ok=True)
+
+            # Save all uploaded files in the asset folder
+            for key in files:
+                file = files[key]
+                if file.filename == '':
+                    continue
+                file_path = os.path.join(asset_dir, file.filename)
+                file.save(file_path)
+
             return 201, None
         except Exception as e:
+            print(f"Error uploading model files: {e}")
             return 500, None
+
 
     @staticmethod
     def download_data(name):
@@ -55,17 +71,21 @@ class ProjectService:
             return 500, None
         
     @staticmethod
-    def download_models(project_name, file_name):
+    def download_models(project_name, asset_hash, file_name):
         try:
             project = ProjectService.create_new_project(project_name)
-            file_path = project.get_model_path(file_name)
+
+            asset_dir = os.path.join(project.models_dir, asset_hash)
+            file_path = os.path.join(asset_dir, file_name)
 
             if os.path.exists(file_path):
-                return 200, (project.models_dir, file_name)
+                return 200, (asset_dir, file_name)
             else:
                 return 404, None
+
         except Exception as e:
             return 500, None
+
 
     @staticmethod
     def create_project_with_data(name, project_id):
@@ -198,6 +218,14 @@ class Project:
         """Return the path for the saveData.txt file."""
         return os.path.join(self.project_dir, 'saveData.txt')
 
-    def get_model_path(self, model_name):
-        """Return the path for a specific model file."""
-        return os.path.join(self.models_dir, model_name)
+    def get_model_path(self, asset_hash, file_name):
+        """
+        Return full path to a specific file inside an asset folder.
+        """
+        return os.path.join(self.get_asset_folder_path(asset_hash), file_name)
+    
+    def get_asset_folder_path(self, asset_hash):
+        """
+        Return the folder path for a given asset inside the models directory.
+        """
+        return os.path.join(self.models_dir, asset_hash)
