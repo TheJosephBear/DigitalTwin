@@ -64,8 +64,9 @@ def upload_editor_data():
 @app.route('/upload_model_files', methods=['POST'])
 def upload_model_files():
     project_name = request.form.get("project_name")
+    asset_hash = request.form.get("asset_hash")
 
-    service_response, service_data = ProjectService.upload_model(project_name, request.files)
+    service_response, service_data = ProjectService.upload_model(project_name, asset_hash, request.files)
 
     if service_response == 201:
         data = {'message': config["server_responses"]["success"], 'code': 'SUCCESS'}
@@ -86,25 +87,61 @@ def download():
     else:
         try_response_error_codes(service_response)
 
-
 @app.route("/downloadModels")
 def downloadModels():
     project_name = request.args.get('project_name').strip()
-    file_name = request.args.get('fileName').strip()
+    asset_hash = request.args.get('asset_hash').strip()
+    file_name = request.args.get('file_name').strip()
 
-    service_response, service_data = ProjectService.download_models(project_name, file_name)
+    service_response, service_data = ProjectService.download_models(
+        project_name, asset_hash, file_name
+    )
 
     if service_response == 200:
-        return send_from_directory(directory=service_data[0], path=service_data[1], as_attachment=True)
+        return send_from_directory(
+            directory=service_data[0],
+            path=service_data[1],
+            as_attachment=True
+        )
     else:
         try_response_error_codes(service_response)
+
+
+@app.route('/list_model_files', methods=['GET'])
+@cross_origin(origin='http://127.0.0.1:5001')
+def list_model_files():
+    project_name = request.args.get("project_name")
+    asset_hash = request.args.get("asset_hash")
+
+    if not project_name or not asset_hash:
+        return make_response({"message": "Missing parameters"}, 400)
+
+    try:
+        project = ProjectService.create_new_project(project_name)
+        asset_dir = os.path.join(project.models_dir, asset_hash)
+
+        if not os.path.exists(asset_dir):
+            return make_response({"message": "Asset not found"}, 404)
+
+        files = [
+            f for f in os.listdir(asset_dir)
+            if os.path.isfile(os.path.join(asset_dir, f))
+        ]
+
+        return jsonify({ "items": files }), 200
+
+    except Exception as e:
+        print(e)
+        return make_response({"message": "Server error"}, 500)
+
 
 
 @app.route('/createProject', methods=['POST'])
 def create_project():
     project_name = request.form.get("project_name")
+    project_id = request.form.get('project_id')
 
-    service_response, service_data = ProjectService.create_project_unique(project_name)
+    service_response, service_data = ProjectService.create_project_with_data(project_name, project_id)
 
     if service_response == 201:
         data = {'message': 'Project created', 'code': 'SUCCESS'}
@@ -162,6 +199,7 @@ def get_all_projects():
     LoggerService.info(f"Get all projects data: {service_data}")
 
     if service_response == 200:
+        print("SENDING DATA: ", service_data)
         data = {'projects': service_data, 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
     else:
