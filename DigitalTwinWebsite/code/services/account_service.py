@@ -54,7 +54,10 @@ class AccountService:
             sess = str(self.find_user_id(name, password)) # this entire thing needs an absolute rework
             if sess != "None":
                 return 201, None
+            else:
+                return 401, None # Unauthorized - User not found or invalid credentials
         except Exception as e:
+            LoggerService.info(f"Register exception: {e}")
             return 500, None
 
     def try_register(self, name, password):

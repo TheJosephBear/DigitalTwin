@@ -9,6 +9,10 @@ services:
       - MONGO_DBNAME=${MONGO_DBNAME}
       - MONGO_USERNAME=${MONGO_USERNAME}
       - MONGO_PASSWORD=${MONGO_PASSWORD}
+      - SECRET_KEY=${SECRET_KEY}
+      - FLASK_ENV=${FLASK_ENV}
+    volumes:
+      - ./DigitalTwinWebsite/code/projects:/app/code/projects
     depends_on:
       mongodb:
         condition: service_healthy

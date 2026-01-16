@@ -10,8 +10,20 @@ from tools import tools
 from repository.mongo_repository import MongoRepository
 
 app = Flask(__name__)
-CORS(app)
-load_dotenv()
+# CORS configuration - allow web test client and Unity client
+CORS(app,
+     origins=[
+         "http://localhost:5000",      # Web test client
+         "http://localhost:5001",      # Unity client
+         "http://localhost:8050",      # Docker Web test client
+         "http://127.0.0.1:5000",      # Web test client
+         "http://127.0.0.1:5001",      # Unity client
+         "http://127.0.0.1:8050",      # Docker Web test client¨
+         "172.19.0.1",                 # Deployment host internal IP
+         "https://dtwin.rqa.cz/",      # Deployment
+     ],
+     supports_credentials=True)
+load_dotenv(dotenv_path="../../.env.production")
 app.secret_key = os.getenv("SECRET_KEY")
 
 config_path = os.path.join(os.path.dirname(__file__), "../conf.toml")
@@ -63,7 +75,6 @@ def upload_model_files():
 
 
 @app.route("/download")
-@cross_origin(origin='http://127.0.0.1:5001')
 def download():
     project_name = request.args.get('project_name').strip()
 
@@ -77,7 +88,6 @@ def download():
 
 
 @app.route("/downloadModels")
-@cross_origin(origin='http://127.0.0.1:5001')
 def downloadModels():
     project_name = request.args.get('project_name').strip()
     file_name = request.args.get('fileName').strip()
@@ -148,6 +158,8 @@ def delete_project():
 def get_all_projects():
 
     service_response, service_data = ProjectService.get_all_projects()
+    LoggerService.info(f"Get all projects response code: {service_response}")
+    LoggerService.info(f"Get all projects data: {service_data}")
 
     if service_response == 200:
         data = {'projects': service_data, 'code': 'SUCCESS'}
@@ -177,14 +189,16 @@ def login():
         session['logged_in_id'] = ""
 
     g = session['logged_in_id']
+    LoggerService.info(f"Login attempt for user: {name}")
 
     service_response, service_data = account_service.try_login(g, name, password)
+    LoggerService.info(f"Login response code: {service_response}")
 
     if service_response == 201:
         data = {'message': 'Logged in sucessfuly', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
     else:
-        try_response_error_codes(service_response)
+        return try_response_error_codes(service_response)
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -200,11 +214,13 @@ def register():
         data = {'message': 'Registered sucessfuly', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
     else:
-        try_response_error_codes(service_response)
+        return try_response_error_codes(service_response)
 
 
 def try_response_error_codes(service_response):
-    if service_response == 404:
+    if service_response == 401:
+        return abort(401, description="Unauthorized - Invalid credentials")
+    elif service_response == 404:
         return abort(404, description=config["server_responses"]["not_found"])
     elif service_response == 409:
         return abort(409, description=config["server_responses"]["conflict"])
