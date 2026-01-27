@@ -10,7 +10,7 @@ class ProjectService:
     @staticmethod
     def upload_editor_data(name, data):
         try:
-            project = ProjectService.create_new_project(name)
+            project = ProjectService.load_project(name)
             file_path = project.get_save_data_path()
             with open(file_path, 'w') as file:
                 file.write(data)
@@ -32,7 +32,7 @@ class ProjectService:
 
         try:
             # Ensure the project exists
-            project = ProjectService.create_new_project(project_name)
+            project = ProjectService.load_project(project_name)
 
             # Create folder for this asset inside models_dir
             asset_dir = os.path.join(project.models_dir, asset_hash)
@@ -55,7 +55,7 @@ class ProjectService:
     @staticmethod
     def download_data(name):
         try:
-            project = ProjectService.create_new_project(name)
+            project = ProjectService.load_project(name)
             file_path = project.get_save_data_path()
             print("Filepath is:")
             print(file_path)
@@ -73,7 +73,7 @@ class ProjectService:
     @staticmethod
     def download_models(project_name, asset_hash, file_name):
         try:
-            project = ProjectService.create_new_project(project_name)
+            project = ProjectService.load_project(project_name)
 
             asset_dir = os.path.join(project.models_dir, asset_hash)
             file_path = os.path.join(asset_dir, file_name)
@@ -90,7 +90,7 @@ class ProjectService:
     @staticmethod
     def create_project_with_data(name, project_id):
         try:
-            project = ProjectService.create_new_project(name)
+            project = Project(name, create=True)
             file_path = project.get_save_data_path()
 
             data = {
@@ -105,12 +105,7 @@ class ProjectService:
         except Exception:
             return 500, None
 
-    @staticmethod
-    def create_new_project(name):
-        """Create a new project and return the Project instance."""
-        project = Project(name)
-        return project
-    
+
     @staticmethod
     def delete_project(name):
         """Delete the project directory and its contents."""
@@ -126,17 +121,28 @@ class ProjectService:
 
     @staticmethod
     def edit_project_name(old_name, new_name):
-        """Rename a project by changing the directory name."""
         try:
             old_path = os.path.join(ProjectService.projects_root, old_name)
             new_path = os.path.join(ProjectService.projects_root, new_name)
-            if os.path.exists(old_path):
-                os.rename(old_path, new_path)
-                return 200, None
-            else:
+
+            if not os.path.exists(old_path):
                 return 404, None
-        except Exception as e:
+
+            os.rename(old_path, new_path)
+
+            save_path = os.path.join(new_path, "saveData.txt")
+            if os.path.exists(save_path):
+                with open(save_path, "r+") as f:
+                    data = json.load(f)
+                    data["projectName"] = new_name
+                    f.seek(0)
+                    f.truncate()
+                    json.dump(data, f)
+
+            return 200, None
+        except Exception:
             return 500, None
+
 
 
     @staticmethod
@@ -152,15 +158,36 @@ class ProjectService:
         
     @staticmethod
     def duplicate_project(old_name, new_name):
-        """Duplicate an existing project directory to a new name."""
-        old_path = os.path.join(ProjectService.projects_root, old_name)
-        new_path = os.path.join(ProjectService.projects_root, new_name)
+        root = ProjectService.projects_root
+        old_path = os.path.join(root, old_name)
+
         if not os.path.exists(old_path):
             return 404, None
-        if os.path.exists(new_path):
-            return 409, None
+
+        # Find next free "(n)" name
+        index = 1
+        while True:
+            new_name = f"{old_name} ({index})"
+            new_path = os.path.join(root, new_name)
+            if not os.path.exists(new_path):
+                break
+            index += 1
+
         shutil.copytree(old_path, new_path)
+
+        save_path = os.path.join(new_path, "saveData.txt")
+        if os.path.exists(save_path):
+            with open(save_path, "r+") as f:
+                data = json.load(f)
+                data["projectName"] = new_name
+                data["projectId"] = str(uuid.uuid4())
+                f.seek(0)
+                f.truncate()
+                json.dump(data, f)
+
         return 201, None
+
+
 
     @staticmethod
     def get_all_projects():
@@ -191,14 +218,23 @@ class ProjectService:
             return 500, None
 
 
+    @staticmethod
+    def load_project(name):
+        project_path = os.path.join(ProjectService.projects_root, name)
+        if not os.path.exists(project_path):
+            raise FileNotFoundError
+        return Project(name, create=False)
+
 
 
 class Project:
-    def __init__(self, name):
+    def __init__(self, name, create=True):
         self.name = name
         self.project_dir = os.path.join(ProjectService.projects_root, name)
         self.models_dir = os.path.join(self.project_dir, 'models')
-        self.setup_project_directories()
+        if create:
+            self.setup_project_directories()
+
 
     def setup_project_directories(self):
         """Create the project directory and models directory if they don't exist."""
