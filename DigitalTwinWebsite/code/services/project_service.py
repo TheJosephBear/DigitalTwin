@@ -226,6 +226,10 @@ class ProjectService:
         return Project(name, create=False)
 
 
+    @staticmethod
+    def create_new_project(name, project_id):
+        return Project(name, create=True)
+
 
 class Project:
     def __init__(self, name, create=True):
