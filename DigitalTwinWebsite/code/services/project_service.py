@@ -1,5 +1,5 @@
 import os
-import shutil   
+import shutil
 import uuid
 import json
 
@@ -17,7 +17,7 @@ class ProjectService:
             return 200, None
         except Exception as e:
             return 500, None
-        
+
     @staticmethod
     def upload_model(project_name, asset_hash, files):
         """
@@ -69,7 +69,7 @@ class ProjectService:
                 return 404, None
         except Exception as e:
             return 500, None
-        
+
     @staticmethod
     def download_models(project_name, asset_hash, file_name):
         try:
@@ -155,7 +155,7 @@ class ProjectService:
                 return file.read()
         else:
             raise FileNotFoundError(f"Save data for project {name} not found")
-        
+
     @staticmethod
     def duplicate_project(old_name, new_name):
         root = ProjectService.projects_root
@@ -227,7 +227,7 @@ class ProjectService:
 
 
     @staticmethod
-    def create_new_project(name, project_id):
+    def create_new_project(name):
         return Project(name, create=True)
 
 
@@ -263,7 +263,7 @@ class Project:
         Return full path to a specific file inside an asset folder.
         """
         return os.path.join(self.get_asset_folder_path(asset_hash), file_name)
-    
+
     def get_asset_folder_path(self, asset_hash):
         """
         Return the folder path for a given asset inside the models directory.

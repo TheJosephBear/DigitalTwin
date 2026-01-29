@@ -13,10 +13,10 @@ class AccountService:
         Returns the user's ID if credentials are correct, None otherwise.
         """
         # Fetch the user by login name
-        user = self._repository.read_record(self._collection_name, {"login": name})
+        user = self._repository.read_record(self._collection_name, {"username": name})
         if user:
             # Check if the password matches the stored hash
-            if bcrypt.checkpw(password.encode("utf-8"), user["heslo"]):
+            if bcrypt.checkpw(password.encode("utf-8"), user["password"]):
                 return user["_id"]
         return None
 
@@ -32,8 +32,8 @@ class AccountService:
         # Hash the password and prepare the user data
         hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
         register_data = {
-            "login": name,
-            "heslo": hashed_password
+            "username": name,
+            "password": hashed_password
         }
 
         # Insert the user into the database
@@ -46,7 +46,7 @@ class AccountService:
         Returns True if the user exists, False otherwise.
         """
         # Use read_record to check for existence
-        user = self._repository.read_record(self._collection_name, {"login": name})
+        user = self._repository.read_record(self._collection_name, {"username": name})
         return user is not None
 
     def try_login(self, sess, name, password):

@@ -241,11 +241,11 @@ def login():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    name = request.form.get("username")
+    username = request.form.get("username")
     password = request.form.get("password")
-    LoggerService.info(f"Register attempt for user: {name}")
+    LoggerService.info(f"Register attempt for user: {username}")
 
-    service_response, service_data = account_service.try_register(name, password)
+    service_response, service_data = account_service.try_register(username, password)
     LoggerService.info(f"Register response code: {service_response}")
 
     if service_response == 201:
