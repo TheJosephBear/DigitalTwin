@@ -1,0 +1,54 @@
+services:
+  flask:
+    image: ${REGISTRY:-localhost}/digitaltwin:latest
+    build:
+      context: ./DigitalTwinWebsite
+    environment:
+      # Variables set in .env.production file
+      - MONGO_URI=${MONGO_URI}
+      - MONGO_DBNAME=${MONGO_DBNAME}
+      - MONGO_USERNAME=${MONGO_USERNAME}
+      - MONGO_PASSWORD=${MONGO_PASSWORD}
+      - SECRET_KEY=${SECRET_KEY}
+      - FLASK_ENV=${FLASK_ENV}
+    volumes:
+      - ./DigitalTwinWebsite/code/projects:/app/code/projects
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - app-network
+    ports:
+      - "8050:5000"
+    restart: on-failure
+
+  mongodb:
+    image: mongo:latest
+    volumes:
+      - ./data/mongodb:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-password}
+      - MONGO_INITDB_DATABASE=${MONGO_DBNAME:-VRTherapy}
+    networks:
+      - app-network
+    ports:
+      # Optional: expose MongoDB port if you need external access
+      - "27018:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      # test: ["CMD", "mongosh", "--eval", "db.getCollection('test').findOne()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: on-failure
+
+networks:
+  app-network:
+    driver: bridge
+
+# volumes:
+#   mongodb_data:
+#     driver: local

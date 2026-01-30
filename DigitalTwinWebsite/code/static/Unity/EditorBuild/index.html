@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Unity WebGL Player | geoStuff</title>
+    <title>Unity Web Player | geoStuff</title>
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
   </head>
   <body>
     <div id="unity-container" class="unity-desktop">
-      <canvas id="unity-canvas" width=1600 height=900></canvas>
+      <canvas id="unity-canvas" width=960 height=600 tabindex="-1"></canvas>
       <div id="unity-loading-bar">
         <div id="unity-logo"></div>
         <div id="unity-progress-bar-empty">
@@ -18,20 +18,15 @@
       </div>
       <div id="unity-warning"> </div>
       <div id="unity-footer">
-        <div id="unity-webgl-logo"></div>
+        <div id="unity-logo-title-footer"></div>
         <div id="unity-fullscreen-button"></div>
         <div id="unity-build-title">geoStuff</div>
       </div>
     </div>
     <script>
-      var container = document.querySelector("#unity-container");
+      var canvas = document.querySelector("#unity-canvas");
 
       var gameInstance = null;
-      var canvas = document.querySelector("#unity-canvas");
-      var loadingBar = document.querySelector("#unity-loading-bar");
-      var progressBarFull = document.querySelector("#unity-progress-bar-full");
-      var fullscreenButton = document.querySelector("#unity-fullscreen-button");
-      var warningBanner = document.querySelector("#unity-warning");
 
       // Shows a temporary message banner/ribbon for a few seconds, or
       // a permanent error message on top of the canvas if type=='error'.
@@ -40,6 +35,7 @@
       // way that non-critical warnings and error messages are presented to the
       // user.
       function unityShowBanner(msg, type) {
+        var warningBanner = document.querySelector("#unity-warning");
         function updateBannerVisibility() {
           warningBanner.style.display = warningBanner.children.length ? 'block' : 'none';
         }
@@ -58,24 +54,40 @@
       }
 
       var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/EditorBuild.loader.js";
+      var loaderUrl = buildUrl + "/Build.loader.js";
       var config = {
-        dataUrl: buildUrl + "/EditorBuild.data.gz",
-        frameworkUrl: buildUrl + "/EditorBuild.framework.js.gz",
-        codeUrl: buildUrl + "/EditorBuild.wasm.gz",
+        arguments: [],
+        dataUrl: buildUrl + "/Build.data",
+        frameworkUrl: buildUrl + "/Build.framework.js",
+        codeUrl: buildUrl + "/Build.wasm",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
         productName: "geoStuff",
         productVersion: "0.1",
         showBanner: unityShowBanner,
+        // errorHandler: function(err, url, line) {
+        //    alert("error " + err + " occurred at line " + line);
+        //    // Return 'true' if you handled this error and don't want Unity
+        //    // to process it further, 'false' otherwise.
+        //    return true;
+        // },
       };
 
-      // By default Unity keeps WebGL canvas render target size matched with
+      // By default, Unity keeps WebGL canvas render target size matched with
       // the DOM size of the canvas element (scaled by window.devicePixelRatio)
       // Set this to false if you want to decouple this synchronization from
       // happening inside the engine, and you would instead like to size up
       // the canvas DOM size and WebGL render target sizes yourself.
       // config.matchWebGLToCanvasSize = false;
+
+      // If you would like all file writes inside Unity Application.persistentDataPath
+      // directory to automatically persist so that the contents are remembered when
+      // the user revisits the site the next time, uncomment the following line:
+      // config.autoSyncPersistentDataPath = true;
+      // This autosyncing is currently not the default behavior to avoid regressing
+      // existing user projects that might rely on the earlier manual
+      // JS_FileSystem_Sync() behavior, but in future Unity version, this will be
+      // expected to change.
 
       if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
         // Mobile device style: fill the whole browser client area with the game canvas:
@@ -84,360 +96,73 @@
         meta.name = 'viewport';
         meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
         document.getElementsByTagName('head')[0].appendChild(meta);
-        container.className = "unity-mobile";
+        document.querySelector("#unity-container").className = "unity-mobile";
         canvas.className = "unity-mobile";
 
         // To lower canvas resolution on mobile devices to gain some
         // performance, uncomment the following line:
         // config.devicePixelRatio = 1;
 
-        unityShowBanner('WebGL builds are not supported on mobile devices.');
+
       } else {
         // Desktop style: Render the game canvas in a window that can be maximized to fullscreen:
-
-        canvas.style.width = "800px";
-        canvas.style.height = "450px";
+        canvas.style.width = "960px";
+        canvas.style.height = "600px";
       }
-      loadingBar.style.display = "block";
+
+      document.querySelector("#unity-loading-bar").style.display = "block";
 
       var script = document.createElement("script");
       script.src = loaderUrl;
       script.onload = () => {
         createUnityInstance(canvas, config, (progress) => {
-          progressBarFull.style.width = 100 * progress + "%";
-        }).then((unityInstance) => {
+          document.querySelector("#unity-progress-bar-full").style.width = 100 * progress + "%";
+              }).then((unityInstance) => {
 
-          gameInstance = unityInstance;
-          loadingBar.style.display = "none";
-          fullscreenButton.onclick = () => {
-            document.makeFullscreen('unity-container');
-          };
-        }).catch((message) => {
-          alert(message);
-        });
-      };
+                gameInstance = unityInstance;
+                document.querySelector("#unity-loading-bar").style.display = "none";
+                document.querySelector("#unity-fullscreen-button").onclick = () => {
+                  document.makeFullscreen('unity-container');
+                };
+
+                // Unloading web content from DOM so that browser GC can run can be tricky to get right.
+                // This code snippet shows how to correctly implement a Unity content Unload mechanism to a web page.
+
+                // Unloading Unity content enables a web page to reclaim the memory used by Unity, e.g. for
+                // the purpose of later loading another Unity content instance on the _same_ web page.
+
+                // When using this functionality, take caution to carefully make sure to clear all JavaScript code,
+                // DOM element and event handler references to the old content you may have retained, or
+                // otherwise the browser's garbage collector will be unable to reclaim the old page.
+
+                // N.b. Unity content does _not_ need to be manually unloaded when the user is navigating away from
+                // the current page to another web page. The browser will take care to clear memory of old visited
+                // pages automatically. This functionality is only needed if you want to switch between loading
+                // multiple Unity builds on a single web page.
+                var quit = document.createElement("button");
+                quit.style = "margin-left: 5px; background-color: lightgray; border: none; padding: 5px; cursor: pointer";
+                quit.innerHTML = "Unload";
+                document.querySelector("#unity-build-title").appendChild(quit);
+                quit.onclick = () => {
+                  // Quit Unity application execution
+                  unityInstance.Quit().then(() => {
+                    // Remove DOM elements from the page so GC can run
+                    document.querySelector("#unity-container").remove();
+                    canvas = null;
+                    // Remover script elements from the page so GC can run
+                    script.remove();
+                    script = null;
+                  });
+                };
+              }).catch((message) => {
+                alert(message);
+              });
+            };
+
       document.body.appendChild(script);
+
     </script>
   
-    <!-- BEGIN WEBGL FILE BROWSER LIB -->
-    <style>
-        #fb_popup_background.highlight {
-            border: 3px dashed #ccc;
-            border-radius: 26px;
-            border-color: aquamarine;
-        }
-        .disableSelection {
-            -webkit-user-select: none;
-            -khtml-user-select: none;
-            -moz-user-select: none;
-            -ms-user-select: none;
-            -o-user-select: none;
-            user-select: none;
-        }
-    </style>
-
-    <div id="fileBrowserPopup" style="display: none; margin: 0%; position: absolute; width: 100%; height: 100%; left: 0; top: 0; bottom: 0; right: 0;">
-        <img class="disableSelection" style="position: absolute; width: 100%; height: 100%; background-color: #000000; filter: opacity(0.7) blur(4px); " />
-
-        <div id="fb_popup">
-            <img id="fb_popup_background" src="FileBrowser/popup_background.png" style="position: fixed; top: 0;  right: 0; bottom: 0; left: 0; margin: auto; width: 502.5px; height: 206px;" />
-            <div>
-                <img src="FileBrowser/popup_header.png" style="position: fixed; top: -146px;  right: 0; bottom: 0; left: 0; margin: auto; width: 502.5px; height: 60.5px;" />
-                <strong id="fb_popup_header_title" style="position: fixed; top: -110px;  right: -20px; bottom: 0; left: 0; margin: auto; width: 500px; height: 58px; color: white;">
-                    File Browser
-                </strong>
-            </div>
-            <div id="open_file_form">
-                <strong id="fb_popup_description_title" style="position: fixed; top: 0px;  right: 0px; bottom: 0; left: 0; margin: auto; width: 500px; height: 58px; text-align: center; color: black;">
-                    Select file to load or use drag & drop
-                </strong>
-
-                <label for="fileToUpload">
-                    <img src="FileBrowser/select_button.png" style="position: fixed; top: 0px;  right: 250px; bottom: -80px; left: 0; margin: auto; width: 193.5px; height: 41px;" />
-                    <strong id="fb_popup_select_button_title" style="position: fixed; top: 0px;  right: 250px; bottom: -100px; left: 0; margin: auto; width: 193.5px; height: 41px; text-align: center; color: white;">
-                        Select
-                    </strong>
-                </label>
-                <input type="file" name="fileToUpload" id="fileToUpload" style="width: 0px; height: 0px;" onchange="fbLoadFiles(event.target.files);return false;" />
-
-                <label for="closePopup">
-                    <img src="FileBrowser/close_button.png" style="position: fixed; top: 0px;  right: -250px; bottom: -80px; left: 0; margin: auto; width: 193.5px; height: 41px;" />
-                    <strong id="fb_popup_close_button_title" style="position: fixed; top: 0px;  right: -245px; bottom: -100px; left: 0; margin: auto; width: 193.5px; height: 41px; text-align: center; color: white;">
-                        Close
-                    </strong>
-                </label>
-                <input type="button" name="closePopup" id="closePopup" style="width: 0px; height: 0px;" onclick="requestCloseFileBrowserForOpen()" />
-            </div>
-        </div>
-    </div>
-
-    <script type='text/javascript'>
-        // ************************ Drag and drop ***************** //
-        let dropArea = document.getElementById("fb_popup");
-        let dropAreaBG = document.getElementById("fb_popup_background");
-
-        // Prevent default drag behaviors
-        ;['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            dropArea.addEventListener(eventName, preventDefaults, false);
-            document.body.addEventListener(eventName, preventDefaults, false);
-        })
-
-        // Highlight drop area when item is dragged over it
-        ;['dragenter', 'dragover'].forEach(eventName => {
-            dropArea.addEventListener(eventName, highlight, false);
-        })
-
-        ;['dragleave', 'drop'].forEach(eventName => {
-            dropArea.addEventListener(eventName, unhighlight, false);
-        })
-
-        // Handle dropped files
-        dropArea.addEventListener('drop', handleDrop, false);
-
-        function preventDefaults (e) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
-
-        function highlight(e) {
-            dropAreaBG.classList.add('highlight');
-        }
-
-        function unhighlight(e) {
-            dropAreaBG.classList.remove('highlight');
-        }
-
-        function handleDrop(e) {
-            var dt = e.dataTransfer;
-            var items = dt.items;
-
-            getFilesDataTransferItems(items).then(files => {
-                fbLoadFiles(files);
-            });
-        }
-
-        function getFilesDataTransferItems(dataTransferItems) {
-            function traverseFileTreePromise(item, path = "", files) {
-                return new Promise(resolve => {
-                    if (item.isFile) {
-                        item.file(file => {
-                            files.push(file);
-                            resolve(file);
-                        });
-                    } else if (item.isDirectory) {
-                        let dirReader = item.createReader();
-                        dirReader.readEntries(entries => {
-                            let entriesPromises = [];
-                            for (let entr of entries)
-                                entriesPromises.push(
-                                    traverseFileTreePromise(entr, (path || "") + item.name + "/", files)
-                                );
-                            resolve(Promise.all(entriesPromises));
-                        });
-                    }
-                });
-            }
-
-            let files = [];
-            return new Promise((resolve, reject) => {
-                let entriesPromises = [];
-                for (let it of dataTransferItems)
-                    entriesPromises.push(
-                        traverseFileTreePromise(it.webkitGetAsEntry(), null, files)
-                    );
-                Promise.all(entriesPromises).then(entries => {
-                    resolve(files);
-                });
-            });
-        }
-    </script>
-
-    <script type='text/javascript'>
-        function callFBFunctionByName(functionName, parameter){
-            switch(functionName){
-                case "initializeFBLibrary":
-                    initializeFBLibrary();
-                    break;
-                case "openFileBrowserForLoad":
-                    openFileBrowserForLoad(parameter);
-                    break;
-                case "cleanupFB":
-                    cleanupFB();
-                    break;       
-                case "closeFileBrowserForOpen":
-                    closeFileBrowserForOpen();
-                    break;
-                case "saveFile":
-                    saveFileFB(parameter);
-                    break;
-                case "setLocalization":
-                    setLocalizationFB(parameter);
-                    break;
-            }
-        }
-        document.callFBFunctionByName = callFBFunctionByName;
-
-        function initializeFBLibrary(){
-            document.fbPopup = document.getElementById("fileBrowserPopup");
-            document.fbOpenFilePopupInput = document.getElementById("fileToUpload");
-
-            document.fbStorage = { 
-                initialized: true,
-                loadedFiles: {},
-                dataPointers: []
-            };
-        }
-
-        function openFileBrowserForLoad(parameters){
-            if(document.fbStorage.initialized !== true)
-                return;
-
-            var typesFilter = parameters[0];
-            var isMultipleSelection = parameters[1] === 1 ? true : false;
-            var isFolder = parameters[2] === 1 ? true : false;
-
-            if(document.fbOpenFilePopupInput.hasAttribute('multiple'))
-                document.fbOpenFilePopupInput.removeAttribute('multiple');
-
-            if (document.fbOpenFilePopupInput.hasAttribute('webkitdirectory'))
-                document.fbOpenFilePopupInput.removeAttribute('webkitdirectory');
-
-            if(isMultipleSelection && !isFolder)
-                document.fbOpenFilePopupInput.setAttribute('multiple', '');
-
-            if(isFolder)
-                document.fbOpenFilePopupInput.setAttribute('webkitdirectory', '');
-
-            document.fbOpenFilePopupInput.accept = typesFilter;
-		    document.fbPopup.style.display = "flex";
-        }
-
-        function closeFileBrowserForOpen(){
-            if(document.fbStorage.initialized !== true)
-                return;
-            document.fbPopup.style.display = "none";
-        }
-
-        function cleanupFB() {
-            if(document.fbStorage.initialized !== true)
-                return;
-            document.fbStorage.loadedFiles = {};
-            document.fbStorage.dataPointers = [];
-        }
-
-        function saveFileFB(fileData){
-            if(document.fbStorage.initialized !== true)
-                return;
-
-            let fileInfo = {
-                status: true,
-                message: "",
-                name: fileData.name
-            };
-
-            try{
-                var contentType = 'application/octet-stream';
-                var a = document.createElement('a');
-                var blob = new Blob([fbBase64ToBytesArray(fileData.data)], {
-                    'type': contentType
-                });
-                a.href = window.URL.createObjectURL(blob);
-                a.download = fileData.name;
-
-                if (document.createEvent) {
-                    var event = document.createEvent('MouseEvents');
-                    event.initEvent('click', true, true);
-                    a.dispatchEvent(event);
-                } else {
-                    a.click();
-                }
-
-                gameInstance.SendMessage(libraryHandlerObjectName, "HandleFileSaved", JSON.stringify(fileInfo));
-            }
-            catch(ex){
-                fileInfo.status = false;
-                fileInfo.message = ex.message;
-
-                gameInstance.SendMessage(libraryHandlerObjectName, "HandleFileSaved", JSON.stringify(fileInfo));
-            }
-        }
-
-        const libraryHandlerObjectName = "[FGFileBrowser]";
-
-        function fbLoadFiles(files) {
-            gameInstance.SendMessage(libraryHandlerObjectName, 'SetAmountOfFilesToBeLoaded', Array.from(files).filter(item => !item.name.endsWith(".DS_Store")).length);
-
-            for (var i = 0, f; f = files[i]; i++) {
-                // ignore Mac hidden file
-                if (f.name.endsWith(".DS_Store"))
-                    continue;
-
-                var reader = new FileReader();
-                reader.onload = (function (file) {
-                    return function (fileloadEvent) {
-                        let loadedFileInfo = fileloadEvent.target.result;
-                
-                        document.fbStorage.loadedFiles[file.name] = {
-                            info: loadedFileInfo
-                        };
-
-                        let extensionSplit = file.name.split('.');
-                        let extension = extensionSplit[extensionSplit.length - 1];
-                        let name = file.name.replace(extension, "");
-                        name = name.substring(0, name.length - 1);
-
-                        let loadedFile = {
-                            fullName: file.name,
-                            name: name,
-                            path: "unavailable-in-web",
-                            length: loadedFileInfo.byteLength,
-                            size: file.size,
-                            extension: extension
-                        };
-
-                        gameInstance.SendMessage(libraryHandlerObjectName, 'HandleLoadedFile', JSON.stringify(loadedFile));
-                    }
-                })(f);
-                
-                reader.readAsArrayBuffer(f);
-            }
-			document.fbOpenFilePopupInput.value = "";
-        }
-
-        function requestCloseFileBrowserForOpen() {
-            gameInstance.SendMessage(libraryHandlerObjectName, "CloseFileBrowserForOpen");
-        }
-
-        function fbBase64ToBytesArray(base64) {
-            var binary_string = window.atob(base64);
-            var len = binary_string.length;
-            var bytes = new Uint8Array(len);
-            for (var i = 0; i < len; i++) {
-                bytes[i] = binary_string.charCodeAt(i);
-            }
-            return bytes.buffer;
-        }
-
-        function setLocalizationFB(parameter){
-            switch(parameter.key){
-                case "HEADER_TITLE":
-                    document.getElementById("fb_popup_header_title").innerHTML = parameter.value;
-                    break;
-                case "DESCRIPTION_TEXT":
-                    document.getElementById("fb_popup_description_title").innerHTML = parameter.value;
-                    break;
-                case "SELECT_BUTTON_CONTENT":
-                    document.getElementById("fb_popup_select_button_title").innerHTML = parameter.value;
-                    break;
-                case "CLOSE_BUTTON_CONTENT":
-                    document.getElementById("fb_popup_close_button_title").innerHTML = parameter.value;
-                    break;
-            }
-        }
-
-    </script>
-    <!-- END WEBGL FILE BROWSER LIB -->
-
     <!-- BEGIN WEBGL FILE BROWSER LIB -->
     <style>
         #fb_popup_background.highlight {
