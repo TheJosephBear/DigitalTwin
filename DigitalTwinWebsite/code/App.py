@@ -10,16 +10,8 @@ from services.logger_service import LoggerService
 from tools import tools
 from repository.mongo_repository import MongoRepository
 
-# Parse command-line arguments early to determine environment
-parser = argparse.ArgumentParser(description='Digital Twin Server')
-parser.add_argument('--local', action='store_true', help='Run in local mode')
-parser.add_argument('--host', type=str, default='0.0.0.0', help='Host to bind to (default: 0.0.0.0)')
-parser.add_argument('--port', type=int, default=5000, help='Port to bind to (default: 5000)')
-parser.add_argument('--debug', action='store_true', default=True, help='Run in debug mode (default: True)')
-args = parser.parse_args()
-
-# Determine environment and load appropriate .env file
-IS_LOCAL = args.local
+# Determine environment - use env var when run by Gunicorn, default to production
+IS_LOCAL = os.getenv('FLASK_ENV') == 'local'
 env_file = "../../.env.local" if IS_LOCAL else "../../.env.production"
 load_dotenv(dotenv_path=env_file)
 
@@ -297,11 +289,30 @@ def try_response_error_codes(service_response):
         return abort(500, description=config["server_responses"]["server_error_message"])
 
 if __name__ == "__main__":
+    # Parse command-line arguments only when run directly (not with Gunicorn)
+    parser = argparse.ArgumentParser(description='Digital Twin Server')
+    parser.add_argument('--local', action='store_true', help='Run in local mode (loads .env.local)')
+    parser.add_argument('--host', type=str, default='0.0.0.0', help='Host to bind to (default: 0.0.0.0)')
+    parser.add_argument('--port', type=int, default=5000, help='Port to bind to (default: 5000)')
+    parser.add_argument('--debug', action='store_true', default=True, help='Run in debug mode (default: True)')
+    args = parser.parse_args()
+
+    # Override IS_LOCAL if --local flag was provided
+    if args.local and not IS_LOCAL:
+        # Reload with local environment
+        new_env_file = "../../.env.local"
+        load_dotenv(dotenv_path=new_env_file, override=True)
+        is_local_mode = True
+        env_file_used = new_env_file
+    else:
+        is_local_mode = IS_LOCAL
+        env_file_used = env_file
+
     # Use local host if --local flag is set
     host = '127.0.0.1' if args.local else args.host
 
-    LoggerService.info(f"Starting server in {'LOCAL' if IS_LOCAL else 'PRODUCTION'} mode")
-    LoggerService.info(f"Environment file: {env_file}")
+    LoggerService.info(f"Starting server in {'LOCAL' if is_local_mode else 'PRODUCTION'} mode")
+    LoggerService.info(f"Environment file: {env_file_used}")
     LoggerService.info(f"Server running on {host}:{args.port} (debug: {args.debug})")
 
     app.run(host=host, port=args.port, debug=args.debug)
