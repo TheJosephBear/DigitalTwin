@@ -45,7 +45,25 @@ account_service = AccountService(repo)
 @app.route("/")
 @app.route("/home")
 def home():
-    return render_template("home.html")
+    return send_from_directory("static/Unity/EditorBuild", "index.html")
+    # return render_template("clean_page.html")
+
+# Serve static files from EditorBuild directory (Build/, FileBrowser/, etc.)
+@app.route('/Build/<path:filename>')
+def serve_build_files(filename):
+    return send_from_directory("static/Unity/EditorBuild/Build", filename)
+
+@app.route('/FileBrowser/<path:filename>')
+def serve_filebrowser_files(filename):
+    return send_from_directory("static/Unity/EditorBuild/FileBrowser", filename)
+
+@app.route('/StreamingAssets/<path:filename>')
+def serve_streaming_assets(filename):
+    return send_from_directory("static/Unity/EditorBuild/StreamingAssets", filename)
+
+@app.route('/TemplateData/<path:filename>')
+def serve_template_data(filename):
+    return send_from_directory("static/Unity/EditorBuild/TemplateData", filename)
 
 @app.route('/upload_editor_data', methods=['POST'])
 def upload_editor_data():
