@@ -1,3 +1,3 @@
 cd DigitalTwinWebsite\code
-python App.py
+python App.py --local
 PAUSE

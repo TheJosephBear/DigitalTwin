@@ -1,5 +1,6 @@
 from flask import Flask, request, session, render_template, make_response, jsonify, url_for, send_file, send_from_directory, abort, g
 import os
+import argparse
 from dotenv import load_dotenv
 import tomli
 from flask_cors import CORS, cross_origin
@@ -8,6 +9,19 @@ from services.account_service import AccountService
 from services.logger_service import LoggerService
 from tools import tools
 from repository.mongo_repository import MongoRepository
+
+# Parse command-line arguments early to determine environment
+parser = argparse.ArgumentParser(description='Digital Twin Server')
+parser.add_argument('--local', action='store_true', help='Run in local mode')
+parser.add_argument('--host', type=str, default='0.0.0.0', help='Host to bind to (default: 0.0.0.0)')
+parser.add_argument('--port', type=int, default=5000, help='Port to bind to (default: 5000)')
+parser.add_argument('--debug', action='store_true', default=True, help='Run in debug mode (default: True)')
+args = parser.parse_args()
+
+# Determine environment and load appropriate .env file
+IS_LOCAL = args.local
+env_file = "../../.env.local" if IS_LOCAL else "../../.env.production"
+load_dotenv(dotenv_path=env_file)
 
 app = Flask(__name__)
 # CORS configuration - allow web test client and Unity client
@@ -23,7 +37,6 @@ CORS(app,
          "https://dtwin.rqa.cz/",      # Deployment
      ],
      supports_credentials=True)
-load_dotenv(dotenv_path="../../.env.production")
 app.secret_key = os.getenv("SECRET_KEY")
 
 config_path = os.path.join(os.path.dirname(__file__), "../conf.toml")
@@ -284,4 +297,11 @@ def try_response_error_codes(service_response):
         return abort(500, description=config["server_responses"]["server_error_message"])
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # Use local host if --local flag is set
+    host = '127.0.0.1' if args.local else args.host
+
+    LoggerService.info(f"Starting server in {'LOCAL' if IS_LOCAL else 'PRODUCTION'} mode")
+    LoggerService.info(f"Environment file: {env_file}")
+    LoggerService.info(f"Server running on {host}:{args.port} (debug: {args.debug})")
+
+    app.run(host=host, port=args.port, debug=args.debug)
