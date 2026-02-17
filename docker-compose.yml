@@ -19,7 +19,7 @@ services:
     networks:
       - app-network
     ports:
-      - "8050:5000"
+      - "127.0.0.1:8050:5000"
     restart: on-failure
 
   mongodb:
@@ -35,7 +35,7 @@ services:
       - app-network
     ports:
       # Optional: expose MongoDB port if you need external access
-      - "27018:27017"
+      - "127.0.0.1:27018:27017"
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       # test: ["CMD", "mongosh", "--eval", "db.getCollection('test').findOne()"]

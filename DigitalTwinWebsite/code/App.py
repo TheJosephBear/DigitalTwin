@@ -24,8 +24,7 @@ CORS(app,
          "http://localhost:8050",      # Docker Web test client
          "http://127.0.0.1:5000",      # Web test client
          "http://127.0.0.1:5001",      # Unity client
-         "http://127.0.0.1:8050",      # Docker Web test client¨
-         "172.19.0.1",                 # Deployment host internal IP
+         "http://127.0.0.1:8050",      # Docker Web test client
          "https://dtwin.rqa.cz/",      # Deployment
      ],
      supports_credentials=True)
