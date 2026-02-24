@@ -54,7 +54,6 @@ class LoggerService:
         """
         cls.info("Logger initialized.")
         cls.info(f"FLASK_ENV: {os.getenv('FLASK_ENV')}")
-        cls.info(f"VERCEL: {os.getenv('VERCEL')}")
         cls.info(f"Python version: {sys.version}")
 
     @classmethod
