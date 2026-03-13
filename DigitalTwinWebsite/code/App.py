@@ -100,6 +100,19 @@ def upload_editor_data():
     else:
         try_response_error_codes(service_response)
 
+@app.route('/upload_survey_data', methods=['POST'])
+def upload_survey_data():
+    project_name = request.form.get("project_name")
+    received_data = request.form.get("survey_data")
+
+    service_response, service_data = ProjectService.upload_survey_data(project_name, received_data)
+
+    if  service_response== 200:
+        data = {'message': config["server_responses"]["success"], 'code': 'SUCCESS'}
+        return make_response(jsonify(data), 201)
+    else:
+        try_response_error_codes(service_response)
+
 
 @app.route('/upload_model_files', methods=['POST'])
 def upload_model_files():
@@ -120,6 +133,18 @@ def download():
     project_name = request.args.get('project_name').strip()
 
     service_response, service_data = ProjectService.download_data(project_name)
+
+    if service_response == 200:
+        data = service_data
+        return make_response(data, 200)
+    else:
+        try_response_error_codes(service_response)
+
+@app.route("/download_survey_data")
+def download_survey_data():
+    project_name = request.args.get('project_name').strip()
+
+    service_response, service_data = ProjectService.download_survey_data(project_name)
 
     if service_response == 200:
         data = service_data

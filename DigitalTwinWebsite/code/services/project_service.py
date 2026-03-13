@@ -51,6 +51,36 @@ class ProjectService:
             print(f"Error uploading model files: {e}")
             return 500, None
 
+    @staticmethod
+    def upload_survey_data(name, data):
+        """Uploads or updates the survey.txt file for a project as raw text."""
+        try:
+            project = ProjectService.load_project(name)
+            file_path = project.get_survey_data_path()
+            
+            with open(file_path, 'w') as file:
+                file.write(data)
+            return 200, None
+        except Exception as e:
+            print(f"Error uploading survey: {e}")
+            return 500, None
+
+    @staticmethod
+    def download_survey_data(name):
+        """Downloads the survey.txt file content as a string."""
+        try:
+            project = ProjectService.load_project(name)
+            file_path = project.get_survey_data_path()
+            
+            if os.path.exists(file_path):
+                with open(file_path, 'r') as file:
+                    content = file.read()
+                return 200, content
+            else:
+                return 404, None
+        except Exception as e:
+            print(f"Error downloading survey: {e}")
+            return 500, None
 
     @staticmethod
     def download_data(name):
@@ -269,3 +299,7 @@ class Project:
         Return the folder path for a given asset inside the models directory.
         """
         return os.path.join(self.models_dir, asset_hash)
+    
+    def get_survey_data_path(self):
+        """Return the path for the survey.txt file."""
+        return os.path.join(self.project_dir, 'survey.txt')
