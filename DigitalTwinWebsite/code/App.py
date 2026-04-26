@@ -288,20 +288,28 @@ def login():
     name = request.form.get("username")
     password = request.form.get("password")
 
-    if not session.get('logged_in_id') :
-        session['logged_in_id'] = ""
-
-    g = session['logged_in_id']
+    g = session.get('logged_in_id')
     LoggerService.info(f"Login attempt for user: {name}")
+
+    if g:
+        # User already has a session, we can skip password check if we want, or validate the token
+        return make_response(jsonify({'message': 'Already logged in', 'code': 'SUCCESS'}), 200)
 
     service_response, service_data = account_service.try_login(g, name, password)
     LoggerService.info(f"Login response code: {service_response}")
 
     if service_response == 201:
+        session['logged_in_id'] = service_data
         data = {'message': 'Logged in sucessfuly', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
     else:
         return try_response_error_codes(service_response)
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.pop('logged_in_id', None)
+    return make_response(jsonify({'message': 'Logged out successfully', 'code': 'SUCCESS'}), 200)
 
 
 @app.route("/register", methods=["GET", "POST"])
