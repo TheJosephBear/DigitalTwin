@@ -105,6 +105,7 @@ def upload_survey_data():
     project_name = request.form.get("project_name")
     received_data = request.form.get("survey_data")
 
+    '''
     service_response, service_data = ProjectService.upload_survey_data(project_name, received_data)
 
     if  service_response== 200:
@@ -112,6 +113,10 @@ def upload_survey_data():
         return make_response(jsonify(data), 201)
     else:
         try_response_error_codes(service_response)
+    '''
+
+    status, msg = ProjectService.upload_survey_data(repo, project_name, received_data)
+    return jsonify({"message": msg}), status
 
 
 @app.route('/upload_model_files', methods=['POST'])
@@ -142,6 +147,7 @@ def download():
 
 @app.route("/download_survey_data")
 def download_survey_data():
+    '''
     project_name = request.args.get('project_name').strip()
 
     service_response, service_data = ProjectService.download_survey_data(project_name)
@@ -151,6 +157,12 @@ def download_survey_data():
         return make_response(data, 200)
     else:
         try_response_error_codes(service_response)
+    '''
+    project_name = request.args.get('project_name').strip()
+    status, data = ProjectService.download_survey_data(repo, project_name)
+    if status == 200:
+        return jsonify(data), 200
+    return jsonify({"error": "Not found"}), status
 
 @app.route("/downloadModels")
 def downloadModels():

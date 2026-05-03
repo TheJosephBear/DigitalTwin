@@ -53,47 +53,55 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def upload_survey_data(name, data):
-        """Uploads or updates the survey.json file for a project."""
+    def upload_survey_data(repo, project_name, data):
+        """Uploads or updates the survey data in MongoDB."""
         try:
-            project = ProjectService.load_project(name)
-            file_path = project.get_survey_data_path()
-            
-            # If 'data' is already a string (raw JSON text from a request)
-            # we parse it first to validate it and then save it formatted.
+            # Parse data if it's a string
             if isinstance(data, str):
                 json_data = json.loads(data)
             else:
                 json_data = data
 
-            with open(file_path, 'w', encoding='utf-8') as file:
-                # indent=4 makes the file human-readable
-                # ensure_ascii=False handles Czech characters correctly
-                json.dump(json_data, file, indent=4, ensure_ascii=False)
-                
-            return 200, None
+            # We use project_name as the unique identifier for the survey
+            query = {"project_name": project_name}
+            
+            # Prepare the document
+            survey_document = {
+                "project_name": project_name,
+                "survey_data": json_data
+            }
+
+            # Check if it exists to decide between update or create
+            existing = repo.read_record(ProjectService.SURVEY_COLLECTION, query)
+            
+            if existing:
+                repo.update_record(ProjectService.SURVEY_COLLECTION, query, survey_document)
+                return 200, "Survey updated"
+            else:
+                repo.create_record(ProjectService.SURVEY_COLLECTION, survey_document)
+                return 201, "Survey created"
+
         except json.JSONDecodeError:
-            print("Error: Provided data is not valid JSON")
             return 400, "Invalid JSON format"
         except Exception as e:
-            print(f"Error uploading survey: {e}")
+            print(f"Error saving survey to Mongo: {e}")
             return 500, str(e)
 
     @staticmethod
-    def download_survey_data(name):
-        """Downloads the survey.txt file content as a string."""
+    def download_survey_data(repo, project_name):
+        """Retrieves the survey data from MongoDB."""
         try:
-            project = ProjectService.load_project(name)
-            file_path = project.get_survey_data_path()
+            query = {"project_name": project_name}
+            record = repo.read_record(ProjectService.SURVEY_COLLECTION, query)
             
-            if os.path.exists(file_path):
-                with open(file_path, 'r') as file:
-                    content = file.read()
-                return 200, content
+            if record:
+                # MongoDB returns a dict, we return the survey_data part
+                # Note: record['_id'] is an ObjectId, so we return the nested survey_data
+                return 200, record.get("survey_data")
             else:
-                return 404, None
+                return 404, "Survey not found"
         except Exception as e:
-            print(f"Error downloading survey: {e}")
+            print(f"Error fetching survey: {e}")
             return 500, None
 
     @staticmethod
