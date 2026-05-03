@@ -6,6 +6,7 @@ import json
 class ProjectService:
 
     projects_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'projects'))
+    SURVEY_COLLECTION = "surveys"
 
     @staticmethod
     def upload_editor_data(name, data):
@@ -53,17 +54,30 @@ class ProjectService:
 
     @staticmethod
     def upload_survey_data(name, data):
-        """Uploads or updates the survey.txt file for a project as raw text."""
+        """Uploads or updates the survey.json file for a project."""
         try:
             project = ProjectService.load_project(name)
             file_path = project.get_survey_data_path()
             
-            with open(file_path, 'w') as file:
-                file.write(data)
+            # If 'data' is already a string (raw JSON text from a request)
+            # we parse it first to validate it and then save it formatted.
+            if isinstance(data, str):
+                json_data = json.loads(data)
+            else:
+                json_data = data
+
+            with open(file_path, 'w', encoding='utf-8') as file:
+                # indent=4 makes the file human-readable
+                # ensure_ascii=False handles Czech characters correctly
+                json.dump(json_data, file, indent=4, ensure_ascii=False)
+                
             return 200, None
+        except json.JSONDecodeError:
+            print("Error: Provided data is not valid JSON")
+            return 400, "Invalid JSON format"
         except Exception as e:
             print(f"Error uploading survey: {e}")
-            return 500, None
+            return 500, str(e)
 
     @staticmethod
     def download_survey_data(name):
@@ -302,4 +316,4 @@ class Project:
     
     def get_survey_data_path(self):
         """Return the path for the survey.txt file."""
-        return os.path.join(self.project_dir, 'survey.txt')
+        return os.path.join(self.project_dir, 'survey.json')

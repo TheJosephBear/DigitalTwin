@@ -1,0 +1,60 @@
+{
+    "Name": "",
+    "Questions": [
+        {
+            "rid": 1000
+        },
+        {
+            "rid": 1001
+        }
+    ],
+    "references": {
+        "version": 2,
+        "RefIds": [
+            {
+                "rid": 1000,
+                "type": {
+                    "class": "SerializableQuestion",
+                    "ns": "SurveySystem",
+                    "asm": "Assembly-CSharp"
+                },
+                "data": {
+                    "Id": 0,
+                    "Title": "a",
+                    "Description": "a",
+                    "ViewPointId": "",
+                    "QuestionType": 0,
+                    "Answers": [
+                        {
+                            "Idx": 0,
+                            "Text": "",
+                            "IsOther": false
+                        }
+                    ]
+                }
+            },
+            {
+                "rid": 1001,
+                "type": {
+                    "class": "SerializableGridQuestion",
+                    "ns": "SurveySystem",
+                    "asm": "Assembly-CSharp"
+                },
+                "data": {
+                    "Id": 1,
+                    "Title": "b",
+                    "Description": "b",
+                    "ViewPointId": "",
+                    "QuestionType": 5,
+                    "Answers": [],
+                    "Rows": [
+                        "Row"
+                    ],
+                    "Columns": [
+                        "Column"
+                    ]
+                }
+            }
+        ]
+    }
+}
