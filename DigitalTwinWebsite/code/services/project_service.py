@@ -9,6 +9,45 @@ class ProjectService:
     SURVEY_COLLECTION = "surveys"
 
     @staticmethod
+    def upload_image(project_name, asset_hash, files):
+        try:
+            project = ProjectService.load_project(project_name)
+            # Create a specific folder for this image hash inside the project
+            image_folder = os.path.join(project.project_dir, 'images', asset_hash)
+            os.makedirs(image_folder, exist_ok=True)
+
+            for key in files:
+                file = files[key]
+                if file.filename == '': continue
+                
+                # Save the file into the hash folder
+                file.save(os.path.join(image_folder, file.filename))
+            
+            return 201, None
+        except Exception as e:
+            print(f"Upload Image Error: {e}")
+            return 500, None
+
+    @staticmethod
+    def download_image(project_name, asset_hash):
+        try:
+            project = ProjectService.load_project(project_name)
+            image_folder = os.path.join(project.project_dir, 'images', asset_hash)
+            
+            if not os.path.exists(image_folder):
+                return 404, None
+
+            # Find the first file in that hash directory
+            files = [f for f in os.listdir(image_folder) if os.path.isfile(os.path.join(image_folder, f))]
+            if not files:
+                return 404, None
+                
+            return 200, (image_folder, files[0])
+        except Exception as e:
+            print(f"Download Image Error: {e}")
+            return 500, None
+
+    @staticmethod
     def upload_editor_data(name, data):
         try:
             project = ProjectService.load_project(name)
@@ -288,6 +327,7 @@ class Project:
         self.name = name
         self.project_dir = os.path.join(ProjectService.projects_root, name)
         self.models_dir = os.path.join(self.project_dir, 'models')
+        self.images_dir = os.path.join(self.project_dir, 'images')
         if create:
             self.setup_project_directories()
 
@@ -300,6 +340,8 @@ class Project:
         if not os.path.exists(self.models_dir):
             print("directory for project models didnt exist, i created a new one")
             os.makedirs(self.models_dir)
+        if not os.path.exists(self.images_dir):
+            os.makedirs(self.images_dir)
 
         save_path = self.get_save_data_path()
         if not os.path.exists(self.get_save_data_path()):

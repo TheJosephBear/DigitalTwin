@@ -132,6 +132,35 @@ def upload_model_files():
     else:
         try_response_error_codes(service_response)
 
+@app.route('/upload_image_files', methods=['POST'])
+def upload_image_files():
+    project_name = request.form.get('project_name')
+    asset_hash = request.form.get('asset_hash')
+    files = request.files
+    
+    LoggerService.info(f"Image upload request for project: {project_name}, hash: {asset_hash}")
+    
+    status, _ = ProjectService.upload_image(project_name, asset_hash, files)
+    
+    if status == 201:
+        return make_response(jsonify({'message': 'Images uploaded successfully'}), 201)
+    else:
+        return try_response_error_codes(status)
+
+@app.route('/download_image_files', methods=['GET'])
+def download_image_files():
+    project_name = request.args.get('project_name')
+    asset_hash = request.args.get('asset_hash')
+    # file_name is sent by Unity, but we'll find it in the hash folder
+    
+    status, result = ProjectService.download_image(project_name, asset_hash)
+    
+    if status == 200:
+        directory, filename = result
+        return send_from_directory(directory, filename)
+    else:
+        return try_response_error_codes(status)
+
 
 @app.route("/download")
 def download():

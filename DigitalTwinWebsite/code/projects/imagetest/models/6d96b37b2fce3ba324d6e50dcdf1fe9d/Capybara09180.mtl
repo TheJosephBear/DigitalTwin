@@ -1,0 +1,36 @@
+newmtl Player5Mtl
+Material Color
+Ka 0.431373 0.6 0.792157
+Kd 0.431373 0.6 0.792157
+Ks 0.0372165 0.0517647 0.0683429 
+
+d 1
+
+Ns 0
+
+map_Ka Capybara091803Tex.png
+map_Kd Capybara091803Tex.png
+map_d Capybara091803Tex.png
+
+map_Bump Capybara091802Tex.png
+
+map_Ns Capybara091801Tex.png
+
+newmtl Player1Mtl
+Material Color
+Ka 0.639216 0.635294 0.647059
+Kd 0.639216 0.635294 0.647059
+Ks 0.055148 0.0548097 0.0558247 
+
+d 1
+
+Ns 0
+
+map_Ka Capybara091803Tex.png
+map_Kd Capybara091803Tex.png
+map_d Capybara091803Tex.png
+
+map_Bump Capybara091802Tex.png
+
+map_Ns Capybara091801Tex.png
+
