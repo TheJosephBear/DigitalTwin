@@ -2,6 +2,8 @@ import os
 import shutil
 import uuid
 import json
+import re
+from email.header import decode_header
 
 class ProjectService:
 
@@ -21,7 +23,7 @@ class ProjectService:
                 if file.filename == '': continue
                 
                 # Save the file into the hash folder
-                file.save(os.path.join(image_folder, file.filename))
+                file.save(os.path.join(image_folder, sanitize_upload_filename(file.filename)))
             
             return 201, None
         except Exception as e:
@@ -45,6 +47,47 @@ class ProjectService:
             return 200, (image_folder, files[0])
         except Exception as e:
             print(f"Download Image Error: {e}")
+            return 500, None
+
+    @staticmethod
+    def upload_preview_image(project_name, file):
+        try:
+            project = ProjectService.load_project(project_name)
+            if not file or file.filename == '':
+                return 400, "No valid file provided"
+
+            # Create a dedicated preview folder inside the project
+            preview_folder = os.path.join(project.project_dir, 'preview')
+            os.makedirs(preview_folder, exist_ok=True)
+
+            # Clean out any old preview images first to ensure only ONE exists
+            for f in os.listdir(preview_folder):
+                os.remove(os.path.join(preview_folder, f))
+
+            # Save the new preview image
+            file.save(os.path.join(preview_folder, sanitize_upload_filename(file.filename)))
+            return 201, None
+        except Exception as e:
+            print(f"Upload Preview Error: {e}")
+            return 500, None
+
+    @staticmethod
+    def download_preview_image(project_name):
+        try:
+            project = ProjectService.load_project(project_name)
+            preview_folder = os.path.join(project.project_dir, 'preview')
+
+            if not os.path.exists(preview_folder):
+                return 404, None
+
+            files = [f for f in os.listdir(preview_folder) if os.path.isfile(os.path.join(preview_folder, f))]
+            if not files:
+                return 404, None
+
+            # Returns the folder and the singular preview filename
+            return 200, (preview_folder, files[0])
+        except Exception as e:
+            print(f"Download Preview Error: {e}")
             return 500, None
 
     @staticmethod
@@ -179,16 +222,17 @@ class ProjectService:
 
 
     @staticmethod
-    def create_project_with_data(name, project_id):
+    def create_project_with_data(name, project_id, description="", image_id=""):
         try:
             project = Project(name, create=True)
             file_path = project.get_save_data_path()
 
             data = {
                 "projectName": name,
-                "projectId": project_id
+                "projectId": project_id,
+                "projectDescription": description,
+                "projectImageID": image_id
             }
-
             with open(file_path, "w") as file:
                 file.write(json.dumps(data))
 
@@ -228,13 +272,64 @@ class ProjectService:
                     data["projectName"] = new_name
                     f.seek(0)
                     f.truncate()
-                    json.dump(data, f)
+                    json.dump(data, f, indent=4)
 
             return 200, None
         except Exception:
             return 500, None
 
+    @staticmethod
+    def edit_project_metadata(old_name, new_name, description, image_id):
+        try:
+            # Helper function to strip forbidden Windows characters for folder paths
+            def sanitize_folder_name(name):
+                return re.sub(r'[\\/*?:"<>|]', "", name).strip()
 
+            sanitized_old = sanitize_folder_name(old_name)
+            sanitized_new = sanitize_folder_name(new_name)
+
+            old_path = os.path.join(ProjectService.projects_root, sanitized_old)
+            new_path = os.path.join(ProjectService.projects_root, sanitized_new)
+
+            if not os.path.exists(old_path):
+                print(f"Error: Path does not exist {old_path}")
+                return 404, None
+
+            # 1. Handle physical directory rename using sanitized names
+            if sanitized_old != sanitized_new:
+                if os.path.exists(new_path):
+                    return 409, "A project directory with the new name already exists"
+                os.rename(old_path, new_path)
+                current_project_path = new_path
+            else:
+                current_project_path = old_path
+
+            # 2. Update the contents of saveData.txt (Allows the raw name with '?')
+            save_path = os.path.join(current_project_path, "saveData.txt")
+            
+            data = {}
+            if os.path.exists(save_path):
+                with open(save_path, "r") as f:
+                    content = f.read().strip()
+                    if content:
+                        try:
+                            data = json.loads(content)
+                        except json.JSONDecodeError:
+                            data = {}
+
+            # The JSON preserves the beautiful display name, even if it has '?'
+            data["projectName"] = new_name  
+            data["projectDescription"] = description if description is not None else ""
+            data["projectImageID"] = image_id if image_id is not None else ""
+
+            # Overwrite cleanly using 'w'
+            with open(save_path, "w") as f:
+                json.dump(data, f, indent=4)
+
+            return 200, None
+        except Exception as e:
+            print(f"Error editing project metadata: {e}")
+            return 500, None
 
     @staticmethod
     def get_project_editor_data(name):
@@ -274,7 +369,7 @@ class ProjectService:
                 data["projectId"] = str(uuid.uuid4())
                 f.seek(0)
                 f.truncate()
-                json.dump(data, f)
+                json.dump(data, f, indent=4)
 
         return 201, None
 
@@ -298,7 +393,9 @@ class ProjectService:
                             data = json.load(f)
                             projects.append({
                                 "projectName": data.get("projectName"),
-                                "projectId": data.get("projectId")
+                                "projectId": data.get("projectId"),
+                                "projectDescription": data.get("projectDescription", ""),
+                                "projectImageID": data.get("projectImageID", "")
                             })
                         except:
                             continue
@@ -320,6 +417,8 @@ class ProjectService:
     @staticmethod
     def create_new_project(name):
         return Project(name, create=True)
+    
+        
 
 
 class Project:
@@ -367,3 +466,20 @@ class Project:
     def get_survey_data_path(self):
         """Return the path for the survey.txt file."""
         return os.path.join(self.project_dir, 'survey.json')
+
+
+def sanitize_upload_filename(raw_filename):
+    """Decodes RFC 2047 MIME encoding used by Unity for non-ASCII filenames."""
+    if not raw_filename:
+        return ""
+    try:
+        decoded_parts = decode_header(raw_filename)
+        filename_parts = []
+        for text, encoding in decoded_parts:
+            if isinstance(text, bytes):
+                filename_parts.append(text.decode(encoding or 'utf-8', errors='ignore'))
+            else:
+                filename_parts.append(text)
+        return "".join(filename_parts)
+    except Exception:
+        return raw_filename  # Fallback to original if decoding fails

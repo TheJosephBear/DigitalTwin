@@ -9,6 +9,7 @@ from services.account_service import AccountService
 from services.logger_service import LoggerService
 from tools import tools
 from repository.mongo_repository import MongoRepository
+from email.header import decode_header
 
 # region: Arg parser and environment setup
 IS_LOCAL = False # default to production mode, can be overridden by --local flag
@@ -161,6 +162,40 @@ def download_image_files():
     else:
         return try_response_error_codes(status)
 
+@app.route('/upload_preview_image', methods=['POST'])
+def upload_preview_image():
+    project_name = request.form.get('project_name')
+    
+    if project_name:
+        try:
+            project_name = project_name.encode('latin1').decode('utf-8')
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass  # Already perfectly decoded
+    
+    if 'file' not in request.files:
+        return make_response(jsonify({'message': 'No file part in the request'}), 400)
+        
+    file = request.files['file']
+    
+    status, message = ProjectService.upload_preview_image(project_name, file)
+    
+    if status == 201:
+        return make_response(jsonify({'message': 'Preview image uploaded successfully'}), 201)
+    else:
+        return try_response_error_codes(status)
+
+
+@app.route('/download_preview_image', methods=['GET'])
+def download_preview_image():
+    project_name = request.args.get('project_name')
+    
+    status, result = ProjectService.download_preview_image(project_name)
+    
+    if status == 200:
+        directory, filename = result
+        return send_from_directory(directory, filename)
+    else:
+        return try_response_error_codes(status)
 
 @app.route("/download")
 def download():
@@ -268,6 +303,37 @@ def edit_project_name():
         return make_response(jsonify(data), 200)
     else:
         try_response_error_codes(service_response)
+
+@app.route('/editProject', methods=['POST'])
+def edit_project():
+    print(request.form.get("oldProjectName"))
+    print(request.form.get("projectName"))
+    print(request.form.get("projectDescription"))
+    print(request.form.get("projectImageID"))
+    # The current name of the project folder used to look it up
+    old_name = request.form.get("oldProjectName")
+    
+    # The new values to update
+    new_name = request.form.get("projectName")
+    new_description = request.form.get("projectDescription")
+    new_image_id = request.form.get("projectImageID")
+
+    if not old_name or not new_name:
+        return make_response(jsonify({'message': 'Missing required project names', 'code': 'BAD_REQUEST'}), 400)
+
+    # Call the updated service method passing all fields
+    service_response, _ = ProjectService.edit_project_metadata(
+        old_name=old_name, 
+        new_name=new_name, 
+        description=new_description, 
+        image_id=new_image_id
+    )
+
+    if service_response == 200:
+        data = {'message': 'Project updated successfully', 'code': 'SUCCESS'}
+        return make_response(jsonify(data), 200)
+    else:
+        return try_response_error_codes(service_response)
 
 
 @app.route('/duplicate_project', methods=['POST'])

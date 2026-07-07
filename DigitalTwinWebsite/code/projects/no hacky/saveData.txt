@@ -1,0 +1,6 @@
+{
+    "projectName": "no hacky",
+    "projectId": "7611fd53-b9bc-480f-bb4c-86cab305ba5a",
+    "projectDescription": "",
+    "projectImageID": ""
+}
