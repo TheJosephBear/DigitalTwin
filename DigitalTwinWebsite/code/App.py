@@ -29,7 +29,7 @@ if __name__ == "__main__":
     host = '127.0.0.1' if IS_LOCAL else args.host
 
 # Determine environment - use env var when run by Gunicorn, default to production
-env_file = "../../.env.local" if IS_LOCAL else "../../.env.production"
+env_file = "../../.env.local" if IS_LOCAL else "../../.env"
 load_dotenv(dotenv_path=env_file)
 
 # endregion
@@ -125,6 +125,10 @@ def upload_model_files():
     project_name = request.form.get("project_name")
     asset_hash = request.form.get("asset_hash")
 
+    LoggerService.info(f"Model upload request for project: {project_name}, hash: {asset_hash}")
+    LoggerService.info(f"Files received: {list(request.files.keys())}")
+    LoggerService.info(f"Model size: {request.content_length} bytes")
+
     service_response, service_data = ProjectService.upload_model(project_name, asset_hash, request.files)
 
     if service_response == 201:
@@ -138,11 +142,11 @@ def upload_image_files():
     project_name = request.form.get('project_name')
     asset_hash = request.form.get('asset_hash')
     files = request.files
-    
+
     LoggerService.info(f"Image upload request for project: {project_name}, hash: {asset_hash}")
-    
+
     status, _ = ProjectService.upload_image(project_name, asset_hash, files)
-    
+
     if status == 201:
         return make_response(jsonify({'message': 'Images uploaded successfully'}), 201)
     else:
@@ -153,9 +157,9 @@ def download_image_files():
     project_name = request.args.get('project_name')
     asset_hash = request.args.get('asset_hash')
     # file_name is sent by Unity, but we'll find it in the hash folder
-    
+
     status, result = ProjectService.download_image(project_name, asset_hash)
-    
+
     if status == 200:
         directory, filename = result
         return send_from_directory(directory, filename)
@@ -165,20 +169,20 @@ def download_image_files():
 @app.route('/upload_preview_image', methods=['POST'])
 def upload_preview_image():
     project_name = request.form.get('project_name')
-    
+
     if project_name:
         try:
             project_name = project_name.encode('latin1').decode('utf-8')
         except (UnicodeEncodeError, UnicodeDecodeError):
             pass  # Already perfectly decoded
-    
+
     if 'file' not in request.files:
         return make_response(jsonify({'message': 'No file part in the request'}), 400)
-        
+
     file = request.files['file']
-    
+
     status, message = ProjectService.upload_preview_image(project_name, file)
-    
+
     if status == 201:
         return make_response(jsonify({'message': 'Preview image uploaded successfully'}), 201)
     else:
@@ -188,9 +192,9 @@ def upload_preview_image():
 @app.route('/download_preview_image', methods=['GET'])
 def download_preview_image():
     project_name = request.args.get('project_name')
-    
+
     status, result = ProjectService.download_preview_image(project_name)
-    
+
     if status == 200:
         directory, filename = result
         return send_from_directory(directory, filename)
@@ -312,7 +316,7 @@ def edit_project():
     print(request.form.get("projectImageID"))
     # The current name of the project folder used to look it up
     old_name = request.form.get("oldProjectName")
-    
+
     # The new values to update
     new_name = request.form.get("projectName")
     new_description = request.form.get("projectDescription")
@@ -323,9 +327,9 @@ def edit_project():
 
     # Call the updated service method passing all fields
     service_response, _ = ProjectService.edit_project_metadata(
-        old_name=old_name, 
-        new_name=new_name, 
-        description=new_description, 
+        old_name=old_name,
+        new_name=new_name,
+        description=new_description,
         image_id=new_image_id
     )
 

@@ -4,13 +4,14 @@ services:
     build:
       context: ./DigitalTwinWebsite
     environment:
-      # Variables set in .env.production file
+      # Variables set in .env file
       - MONGO_URI=${MONGO_URI}
       - MONGO_DBNAME=${MONGO_DBNAME}
       - MONGO_USERNAME=${MONGO_USERNAME}
       - MONGO_PASSWORD=${MONGO_PASSWORD}
       - SECRET_KEY=${SECRET_KEY}
       - FLASK_ENV=${FLASK_ENV}
+      - LOG_LEVEL=${LOG_LEVEL}
     volumes:
       - ./DigitalTwinWebsite/code/projects:/app/code/projects
     depends_on:

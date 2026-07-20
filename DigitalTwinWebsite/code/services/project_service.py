@@ -4,6 +4,7 @@ import uuid
 import json
 import re
 from email.header import decode_header
+from services.logger_service import LoggerService
 
 class ProjectService:
 
@@ -21,10 +22,10 @@ class ProjectService:
             for key in files:
                 file = files[key]
                 if file.filename == '': continue
-                
+
                 # Save the file into the hash folder
                 file.save(os.path.join(image_folder, sanitize_upload_filename(file.filename)))
-            
+
             return 201, None
         except Exception as e:
             print(f"Upload Image Error: {e}")
@@ -35,7 +36,7 @@ class ProjectService:
         try:
             project = ProjectService.load_project(project_name)
             image_folder = os.path.join(project.project_dir, 'images', asset_hash)
-            
+
             if not os.path.exists(image_folder):
                 return 404, None
 
@@ -43,7 +44,7 @@ class ProjectService:
             files = [f for f in os.listdir(image_folder) if os.path.isfile(os.path.join(image_folder, f))]
             if not files:
                 return 404, None
-                
+
             return 200, (image_folder, files[0])
         except Exception as e:
             print(f"Download Image Error: {e}")
@@ -116,22 +117,88 @@ class ProjectService:
         try:
             # Ensure the project exists
             project = ProjectService.load_project(project_name)
+            LoggerService.info(f"Uploading model files for project: {project_name}, asset hash: {asset_hash}, number of files: {len(files)}")
 
             # Create folder for this asset inside models_dir
             asset_dir = os.path.join(project.models_dir, asset_hash)
-            os.makedirs(asset_dir, exist_ok=True)
+            try:
+                os.makedirs(asset_dir, exist_ok=True)
+            except OSError as makedirs_err:
+                LoggerService.error(
+                    f"Failed to create asset directory '{asset_dir}': {makedirs_err!r}"
+                )
+                return 500, "Failed to create asset directory"
 
-            # Save all uploaded files in the asset folder
+            # Verify the folder actually exists and is a directory we can write to.
+            # makedirs(exist_ok=True) can silently "succeed" when the path is
+            # blocked by an existing FILE (not a directory) on some platforms,
+            # and a read-only/permission-denied parent won't always raise either.
+            if not os.path.isdir(asset_dir):
+                LoggerService.error(
+                    f"Asset directory was not created (path exists but is not a "
+                    f"directory, or was removed concurrently): {asset_dir}"
+                )
+                return 500, "Asset directory not created"
+
+            if not os.access(asset_dir, os.W_OK):
+                LoggerService.error(
+                    f"Asset directory exists but is not writable: {asset_dir}"
+                )
+                return 500, "Asset directory not writable"
+
+            LoggerService.info(f"Asset directory created at: {asset_dir}")
+
+            # Save all uploaded files in the asset folder.
+            # `files` is a Werkzeug MultiDict: multiple files may share the SAME
+            # form-field key (e.g. one field named "file" sent many times).
+            # Iterating keys alone would only return the FIRST file per key, so
+            # we use getlist(key) to grab every file under each key — otherwise
+            # multi-file model uploads (.obj + .mtl + textures) silently lose
+            # everything after the first file.
+            #
+            # NOTE: returning 201 only when at least one file was actually
+            # written. Previously this returned 201 even if request.files was
+            # empty or every filename was blank, which left an empty asset
+            # folder on disk while Unity believed the upload succeeded
+            # ("the file isn't saved sometimes" bug).
+            saved_files = 0
+            LoggerService.info(f"Files to be saved: {list(files.keys())}")
             for key in files:
-                file = files[key]
-                if file.filename == '':
-                    continue
-                file_path = os.path.join(asset_dir, file.filename)
-                file.save(file_path)
+                for file in files.getlist(key):
+                    if not file or file.filename == '':
+                        LoggerService.warning(f"Skipping empty file part under key '{key}'")
+                        continue
+                    safe_name = sanitize_upload_filename(file.filename)
+                    if not safe_name:
+                        LoggerService.warning(f"Skipping file with empty sanitized name under key '{key}' (raw: {file.filename!r})")
+                        continue
+                    file_path = os.path.join(asset_dir, safe_name)
+                    # Use save() with a try/except around the write itself so a
+                    # single failing write (e.g. disk-full, locked file) doesn't
+                    # silently delete the rest of the upload's success state.
+                    try:
+                        file.save(file_path)
+                        saved_files += 1
+                        LoggerService.info(f"Saved file: {file_path} ({file.content_length} bytes)")
+                    except Exception as write_err:
+                        LoggerService.error(f"Failed to write file {file_path}: {write_err!r}")
+
+            if saved_files == 0:
+                # Nothing was actually written — do NOT report success.
+                LoggerService.warning(
+                    f"Model upload finished with 0 saved files for project '{project_name}', "
+                    f"hash '{asset_hash}'. request.files keys were: {list(files.keys())}. "
+                    f"Removing empty asset directory."
+                )
+                try:
+                    os.rmdir(asset_dir)
+                except OSError:
+                    pass
+                return 400, "No files were saved"
 
             return 201, None
         except Exception as e:
-            print(f"Error uploading model files: {e}")
+            LoggerService.error(f"Error uploading model files: {e!r}")
             return 500, None
 
     @staticmethod
@@ -146,7 +213,7 @@ class ProjectService:
 
             # We use project_name as the unique identifier for the survey
             query = {"project_name": project_name}
-            
+
             # Prepare the document
             survey_document = {
                 "project_name": project_name,
@@ -155,7 +222,7 @@ class ProjectService:
 
             # Check if it exists to decide between update or create
             existing = repo.read_record(ProjectService.SURVEY_COLLECTION, query)
-            
+
             if existing:
                 repo.update_record(ProjectService.SURVEY_COLLECTION, query, survey_document)
                 return 200, "Survey updated"
@@ -175,7 +242,7 @@ class ProjectService:
         try:
             query = {"project_name": project_name}
             record = repo.read_record(ProjectService.SURVEY_COLLECTION, query)
-            
+
             if record:
                 # MongoDB returns a dict, we return the survey_data part
                 # Note: record['_id'] is an ObjectId, so we return the nested survey_data
@@ -306,7 +373,7 @@ class ProjectService:
 
             # 2. Update the contents of saveData.txt (Allows the raw name with '?')
             save_path = os.path.join(current_project_path, "saveData.txt")
-            
+
             data = {}
             if os.path.exists(save_path):
                 with open(save_path, "r") as f:
@@ -318,7 +385,7 @@ class ProjectService:
                             data = {}
 
             # The JSON preserves the beautiful display name, even if it has '?'
-            data["projectName"] = new_name  
+            data["projectName"] = new_name
             data["projectDescription"] = description if description is not None else ""
             data["projectImageID"] = image_id if image_id is not None else ""
 
@@ -417,8 +484,8 @@ class ProjectService:
     @staticmethod
     def create_new_project(name):
         return Project(name, create=True)
-    
-        
+
+
 
 
 class Project:
@@ -462,7 +529,7 @@ class Project:
         Return the folder path for a given asset inside the models directory.
         """
         return os.path.join(self.models_dir, asset_hash)
-    
+
     def get_survey_data_path(self):
         """Return the path for the survey.txt file."""
         return os.path.join(self.project_dir, 'survey.json')

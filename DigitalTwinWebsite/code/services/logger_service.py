@@ -15,6 +15,25 @@ class LoggerService:
     _logger = None
     _app = None
 
+    @staticmethod
+    def _describe_log_level(level):
+        """Convert a numeric log level to its name when possible."""
+        for level_name, level_value in logging.getLevelNamesMapping().items():
+            if level_value == level:
+                return level_name
+
+        return str(level)
+
+    @staticmethod
+    def _resolve_log_level():
+        """Resolve the configured log level from the environment."""
+        level_name = os.getenv("LOG_LEVEL", "INFO").strip().upper()
+
+        if level_name.isdigit():
+            return int(level_name)
+
+        return getattr(logging, level_name, logging.INFO)
+
     @classmethod
     def configure_app_logger(cls, app):
         """
@@ -28,9 +47,11 @@ class LoggerService:
         """
         cls._app = app
 
+        log_level = cls._resolve_log_level()
+
         # Always configure stdout logging first
         logging.basicConfig(
-            level=logging.INFO,
+            level=log_level,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[logging.StreamHandler(sys.stdout)]
         )
@@ -39,12 +60,14 @@ class LoggerService:
             # Production: Running under Gunicorn (Docker)
             gunicorn_logger = logging.getLogger('gunicorn.error')
             app.logger.handlers = gunicorn_logger.handlers
-            app.logger.setLevel(gunicorn_logger.level)
         else:
             # Development or Vercel: Use stdout directly
-            app.logger.setLevel(logging.INFO)
+            pass
+
+        app.logger.setLevel(log_level)
 
         cls._logger = app.logger
+        cls.info(f"Log level set to {cls._describe_log_level(app.logger.level)}")
         return app.logger
 
     @classmethod
