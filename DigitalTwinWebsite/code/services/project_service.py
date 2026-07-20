@@ -3,6 +3,7 @@ import shutil
 import uuid
 import json
 import re
+import datetime
 from email.header import decode_header
 from services.logger_service import LoggerService
 
@@ -10,6 +11,12 @@ class ProjectService:
 
     projects_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'projects'))
     SURVEY_COLLECTION = "surveys"
+    PROJECT_COLLECTION = "projects"
+    repo = None
+
+    @classmethod
+    def set_repository(cls, repository):
+        cls.repo = repository
 
     @staticmethod
     def upload_image(project_name, asset_hash, files):
@@ -202,9 +209,13 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def upload_survey_data(repo, project_name, data):
+    def upload_survey_data(project_name, data, repo=None):
         """Uploads or updates the survey data in MongoDB."""
         try:
+            r = repo or ProjectService.repo
+            if not r:
+                return 500, "Repository not initialized"
+
             # Parse data if it's a string
             if isinstance(data, str):
                 json_data = json.loads(data)
@@ -221,13 +232,13 @@ class ProjectService:
             }
 
             # Check if it exists to decide between update or create
-            existing = repo.read_record(ProjectService.SURVEY_COLLECTION, query)
+            existing = r.read_record(ProjectService.SURVEY_COLLECTION, query)
 
             if existing:
-                repo.update_record(ProjectService.SURVEY_COLLECTION, query, survey_document)
+                r.update_record(ProjectService.SURVEY_COLLECTION, query, survey_document)
                 return 200, "Survey updated"
             else:
-                repo.create_record(ProjectService.SURVEY_COLLECTION, survey_document)
+                r.create_record(ProjectService.SURVEY_COLLECTION, survey_document)
                 return 201, "Survey created"
 
         except json.JSONDecodeError:
@@ -237,11 +248,15 @@ class ProjectService:
             return 500, str(e)
 
     @staticmethod
-    def download_survey_data(repo, project_name):
+    def download_survey_data(project_name, repo=None):
         """Retrieves the survey data from MongoDB."""
         try:
+            r = repo or ProjectService.repo
+            if not r:
+                return 500, None
+
             query = {"project_name": project_name}
-            record = repo.read_record(ProjectService.SURVEY_COLLECTION, query)
+            record = r.read_record(ProjectService.SURVEY_COLLECTION, query)
 
             if record:
                 # MongoDB returns a dict, we return the survey_data part
@@ -303,6 +318,30 @@ class ProjectService:
             with open(file_path, "w") as file:
                 file.write(json.dumps(data))
 
+            if ProjectService.repo:
+                try:
+                    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                    project_doc = {
+                        "name": name,
+                        "projectName": name,
+                        "projectId": project_id,
+                        "projectDescription": description,
+                        "projectImageID": image_id,
+                        "created_at": now,
+                        "updated_at": now
+                    }
+                    query = {"projectName": name}
+                    existing = ProjectService.repo.read_record(ProjectService.PROJECT_COLLECTION, query)
+                    if not existing:
+                        existing = ProjectService.repo.read_record(ProjectService.PROJECT_COLLECTION, {"name": name})
+
+                    if existing:
+                        ProjectService.repo.update_record(ProjectService.PROJECT_COLLECTION, {"_id": existing["_id"]}, project_doc)
+                    else:
+                        ProjectService.repo.create_record(ProjectService.PROJECT_COLLECTION, project_doc)
+                except Exception as mongo_err:
+                    LoggerService.error(f"Error saving project to Mongo: {mongo_err}")
+
             return 201, None
         except Exception:
             return 500, None
@@ -315,6 +354,14 @@ class ProjectService:
             project_path = os.path.join(ProjectService.projects_root, name)
             if os.path.exists(project_path):
                 shutil.rmtree(project_path)
+
+                if ProjectService.repo:
+                    try:
+                        ProjectService.repo.delete_record(ProjectService.PROJECT_COLLECTION, {"projectName": name})
+                        ProjectService.repo.delete_record(ProjectService.PROJECT_COLLECTION, {"name": name})
+                    except Exception as mongo_err:
+                        LoggerService.error(f"Error deleting project from Mongo: {mongo_err}")
+
                 return 200, None
             else:
                 return 404, None
@@ -340,6 +387,22 @@ class ProjectService:
                     f.seek(0)
                     f.truncate()
                     json.dump(data, f, indent=4)
+
+            if ProjectService.repo:
+                try:
+                    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                    ProjectService.repo.update_record(
+                        ProjectService.PROJECT_COLLECTION,
+                        {"projectName": old_name},
+                        {"projectName": new_name, "name": new_name, "updated_at": now}
+                    )
+                    ProjectService.repo.update_record(
+                        ProjectService.PROJECT_COLLECTION,
+                        {"name": old_name},
+                        {"projectName": new_name, "name": new_name, "updated_at": now}
+                    )
+                except Exception as mongo_err:
+                    LoggerService.error(f"Error updating project name in Mongo: {mongo_err}")
 
             return 200, None
         except Exception:
@@ -393,6 +456,29 @@ class ProjectService:
             with open(save_path, "w") as f:
                 json.dump(data, f, indent=4)
 
+            if ProjectService.repo:
+                try:
+                    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                    update_data = {
+                        "name": new_name,
+                        "projectName": new_name,
+                        "projectDescription": description if description is not None else "",
+                        "projectImageID": image_id if image_id is not None else "",
+                        "updated_at": now
+                    }
+                    ProjectService.repo.update_record(
+                        ProjectService.PROJECT_COLLECTION,
+                        {"projectName": old_name},
+                        update_data
+                    )
+                    ProjectService.repo.update_record(
+                        ProjectService.PROJECT_COLLECTION,
+                        {"name": old_name},
+                        update_data
+                    )
+                except Exception as mongo_err:
+                    LoggerService.error(f"Error editing project metadata in Mongo: {mongo_err}")
+
             return 200, None
         except Exception as e:
             print(f"Error editing project metadata: {e}")
@@ -429,16 +515,38 @@ class ProjectService:
         shutil.copytree(old_path, new_path)
 
         save_path = os.path.join(new_path, "saveData.txt")
+        new_project_id = str(uuid.uuid4())
+        desc = ""
+        img_id = ""
         if os.path.exists(save_path):
             with open(save_path, "r+") as f:
                 data = json.load(f)
                 data["projectName"] = new_name
-                data["projectId"] = str(uuid.uuid4())
+                data["projectId"] = new_project_id
+                desc = data.get("projectDescription", "")
+                img_id = data.get("projectImageID", "")
                 f.seek(0)
                 f.truncate()
                 json.dump(data, f, indent=4)
 
+        if ProjectService.repo:
+            try:
+                now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                new_doc = {
+                    "name": new_name,
+                    "projectName": new_name,
+                    "projectId": new_project_id,
+                    "projectDescription": desc,
+                    "projectImageID": img_id,
+                    "created_at": now,
+                    "updated_at": now
+                }
+                ProjectService.repo.create_record(ProjectService.PROJECT_COLLECTION, new_doc)
+            except Exception as mongo_err:
+                LoggerService.error(f"Error saving duplicated project to Mongo: {mongo_err}")
+
         return 201, None
+
 
 
 

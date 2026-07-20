@@ -63,6 +63,7 @@ app.after_request(LoggerService.create_response_logger())
 
 repo = MongoRepository(uri=os.getenv("MONGO_URI"), database_name=config["database"]["database_name"])
 account_service = AccountService(repo)
+ProjectService.set_repository(repo)
 
 
 @app.route("/")
@@ -116,7 +117,7 @@ def upload_survey_data():
         try_response_error_codes(service_response)
     '''
 
-    status, msg = ProjectService.upload_survey_data(repo, project_name, received_data)
+    status, msg = ProjectService.upload_survey_data(project_name, received_data)
     return jsonify({"message": msg}), status
 
 
@@ -227,7 +228,7 @@ def download_survey_data():
         try_response_error_codes(service_response)
     '''
     project_name = request.args.get('project_name').strip()
-    status, data = ProjectService.download_survey_data(repo, project_name)
+    status, data = ProjectService.download_survey_data(project_name)
     if status == 200:
         return jsonify(data), 200
     return jsonify({"error": "Not found"}), status
