@@ -103,7 +103,7 @@ class ProjectService:
         try:
             project = ProjectService.load_project(name)
             file_path = project.get_save_data_path()
-            with open(file_path, 'w') as file:
+            with open(file_path, 'w', encoding='utf-8') as file:
                 file.write(data)
             return 200, None
         except Exception as e:
@@ -277,7 +277,7 @@ class ProjectService:
             print(file_path)
             if os.path.exists(file_path):
                 print("path does exist")
-                with open(file_path, 'r') as file:
+                with open(file_path, 'r', encoding='utf-8') as file:
                     content = file.read()
                     print("content of file is: "+content)
                     return 200, content
@@ -316,7 +316,7 @@ class ProjectService:
                 "projectImageID": image_id,
                 "owner": owner
             }
-            with open(file_path, "w") as file:
+            with open(file_path, "w", encoding='utf-8') as file:
                 file.write(json.dumps(data))
 
             if ProjectService.repo:
@@ -385,7 +385,7 @@ class ProjectService:
 
             save_path = os.path.join(new_path, "saveData.txt")
             if os.path.exists(save_path):
-                with open(save_path, "r+") as f:
+                with open(save_path, "r+", encoding='utf-8') as f:
                     data = json.load(f)
                     data["projectName"] = new_name
                     f.seek(0)
@@ -443,7 +443,7 @@ class ProjectService:
 
             data = {}
             if os.path.exists(save_path):
-                with open(save_path, "r") as f:
+                with open(save_path, "r", encoding='utf-8') as f:
                     content = f.read().strip()
                     if content:
                         try:
@@ -457,7 +457,7 @@ class ProjectService:
             data["projectImageID"] = image_id if image_id is not None else ""
 
             # Overwrite cleanly using 'w'
-            with open(save_path, "w") as f:
+            with open(save_path, "w", encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
 
             if ProjectService.repo:
@@ -496,7 +496,7 @@ class ProjectService:
         project = Project(name)
         save_data_path = project.get_save_data_path()
         if os.path.exists(save_data_path):
-            with open(save_data_path, 'r') as file:
+            with open(save_data_path, 'r', encoding='utf-8') as file:
                 return file.read()
         else:
             raise FileNotFoundError(f"Save data for project {name} not found")
@@ -526,7 +526,7 @@ class ProjectService:
         img_id = ""
         owner = ""
         if os.path.exists(save_path):
-            with open(save_path, "r+") as f:
+            with open(save_path, "r+", encoding='utf-8') as f:
                 data = json.load(f)
                 data["projectName"] = new_name
                 data["projectId"] = new_project_id
@@ -589,7 +589,7 @@ class ProjectService:
 
                 save_path = os.path.join(project_path, "saveData.txt")
                 if os.path.exists(save_path):
-                    with open(save_path, "r") as f:
+                    with open(save_path, "r", encoding='utf-8') as f:
                         try:
                             data = json.load(f)
                             projects.append({
@@ -647,7 +647,7 @@ class Project:
 
         save_path = self.get_save_data_path()
         if not os.path.exists(self.get_save_data_path()):
-            with open(save_path, 'w') as f:
+            with open(save_path, 'w', encoding='utf-8') as f:
                 f.write("")
 
     def get_save_data_path(self):

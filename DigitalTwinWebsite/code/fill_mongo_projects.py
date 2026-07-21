@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import uuid
 import datetime
@@ -60,19 +61,31 @@ def fill_mongo_with_projects():
         data = {}
         if os.path.exists(save_path):
             content = None
-            for enc in ("utf-8", "cp1252", "latin-1"):
+            used_enc = None
+            for enc in ("utf-8", "windows-1250", "cp1250"):
                 try:
                     with open(save_path, "r", encoding=enc) as f:
-                        content = f.read().strip()
+                        content = f.read()
+                    used_enc = enc
                     break
-                except UnicodeDecodeError:
+                except (UnicodeDecodeError, UnicodeError):
                     continue
 
-            if content:
+            if content is not None:
+                # Convert the file on disk to UTF-8 explicitly
                 try:
-                    data = json.loads(content)
-                except json.JSONDecodeError:
-                    data = {}
+                    with open(save_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    print(f"Converted {save_path} to UTF-8 (read using {used_enc})")
+                except Exception as convert_err:
+                    print(f"Failed to rewrite {save_path} in UTF-8: {convert_err}")
+
+                content_stripped = content.strip()
+                if content_stripped:
+                    try:
+                        data = json.loads(content_stripped)
+                    except json.JSONDecodeError:
+                        data = {}
 
         project_name = data.get("projectName") or name
         project_id = data.get("projectId") or str(uuid.uuid4())
