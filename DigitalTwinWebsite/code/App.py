@@ -286,8 +286,9 @@ def list_model_files():
 def create_project():
     project_name = request.form.get("project_name")
     project_id = request.form.get('project_id')
+    owner = request.form.get("owner") or request.form.get("project_owner") or request.form.get("projectOwner") or session.get('logged_in_id') or ""
 
-    service_response, service_data = ProjectService.create_project_with_data(project_name, project_id)
+    service_response, service_data = ProjectService.create_project_with_data(project_name, project_id, owner=owner)
 
     if service_response == 201:
         data = {'message': 'Project created', 'code': 'SUCCESS'}

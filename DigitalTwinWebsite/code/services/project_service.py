@@ -304,7 +304,7 @@ class ProjectService:
 
 
     @staticmethod
-    def create_project_with_data(name, project_id, description="", image_id=""):
+    def create_project_with_data(name, project_id, description="", image_id="", owner=""):
         try:
             project = Project(name, create=True)
             file_path = project.get_save_data_path()
@@ -313,7 +313,8 @@ class ProjectService:
                 "projectName": name,
                 "projectId": project_id,
                 "projectDescription": description,
-                "projectImageID": image_id
+                "projectImageID": image_id,
+                "owner": owner
             }
             with open(file_path, "w") as file:
                 file.write(json.dumps(data))
@@ -327,6 +328,7 @@ class ProjectService:
                         "projectId": project_id,
                         "projectDescription": description,
                         "projectImageID": image_id,
+                        "owner": owner,
                         "created_at": now,
                         "updated_at": now
                     }
@@ -336,6 +338,8 @@ class ProjectService:
                         existing = ProjectService.repo.read_record(ProjectService.PROJECT_COLLECTION, {"name": name})
 
                     if existing:
+                        if not owner and "owner" in existing:
+                            project_doc["owner"] = existing["owner"]
                         ProjectService.repo.update_record(ProjectService.PROJECT_COLLECTION, {"_id": existing["_id"]}, project_doc)
                     else:
                         ProjectService.repo.create_record(ProjectService.PROJECT_COLLECTION, project_doc)
@@ -466,6 +470,8 @@ class ProjectService:
                         "projectImageID": image_id if image_id is not None else "",
                         "updated_at": now
                     }
+                    if "owner" in data:
+                        update_data["owner"] = data["owner"]
                     ProjectService.repo.update_record(
                         ProjectService.PROJECT_COLLECTION,
                         {"projectName": old_name},
@@ -518,6 +524,7 @@ class ProjectService:
         new_project_id = str(uuid.uuid4())
         desc = ""
         img_id = ""
+        owner = ""
         if os.path.exists(save_path):
             with open(save_path, "r+") as f:
                 data = json.load(f)
@@ -525,6 +532,7 @@ class ProjectService:
                 data["projectId"] = new_project_id
                 desc = data.get("projectDescription", "")
                 img_id = data.get("projectImageID", "")
+                owner = data.get("owner", "")
                 f.seek(0)
                 f.truncate()
                 json.dump(data, f, indent=4)
@@ -538,6 +546,7 @@ class ProjectService:
                     "projectId": new_project_id,
                     "projectDescription": desc,
                     "projectImageID": img_id,
+                    "owner": owner,
                     "created_at": now,
                     "updated_at": now
                 }
@@ -553,6 +562,23 @@ class ProjectService:
     @staticmethod
     def get_all_projects():
         try:
+            if ProjectService.repo:
+                try:
+                    collection = ProjectService.repo.read_all_records(ProjectService.PROJECT_COLLECTION)
+                    records = collection.find()
+                    projects = []
+                    for doc in records:
+                        projects.append({
+                            "projectName": doc.get("projectName") or doc.get("name", ""),
+                            "projectId": doc.get("projectId", ""),
+                            "projectDescription": doc.get("projectDescription", ""),
+                            "projectImageID": doc.get("projectImageID", ""),
+                            "owner": doc.get("owner", "")
+                        })
+                    return 200, projects
+                except Exception as mongo_err:
+                    LoggerService.error(f"Error fetching projects from Mongo: {mongo_err}")
+
             root = ProjectService.projects_root
             projects = []
 
@@ -570,14 +596,16 @@ class ProjectService:
                                 "projectName": data.get("projectName"),
                                 "projectId": data.get("projectId"),
                                 "projectDescription": data.get("projectDescription", ""),
-                                "projectImageID": data.get("projectImageID", "")
+                                "projectImageID": data.get("projectImageID", ""),
+                                "owner": data.get("owner", "")
                             })
                         except:
                             continue
 
             return 200, projects  # Return list directly
 
-        except Exception:
+        except Exception as e:
+            LoggerService.error(f"Error in get_all_projects: {e}")
             return 500, None
 
 
