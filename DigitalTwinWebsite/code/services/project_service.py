@@ -347,7 +347,8 @@ class ProjectService:
                     LoggerService.error(f"Error saving project to Mongo: {mongo_err}")
 
             return 201, None
-        except Exception:
+        except Exception as e:
+            print(f"Failed to create project {name} with data: {e}")
             return 500, None
 
 
@@ -370,7 +371,8 @@ class ProjectService:
             else:
                 return 404, None
         except Exception as e:
-                return 500, None
+            print(f"Failed to delete project {name}: {e}")
+            return 500, None
 
     @staticmethod
     def edit_project_name(old_name, new_name):
@@ -409,7 +411,8 @@ class ProjectService:
                     LoggerService.error(f"Error updating project name in Mongo: {mongo_err}")
 
             return 200, None
-        except Exception:
+        except Exception as e:
+            print(f"Failed to edit project name {old_name} to {new_name}: {e}")
             return 500, None
 
     @staticmethod
