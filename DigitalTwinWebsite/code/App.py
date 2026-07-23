@@ -9,6 +9,7 @@ from services.account_service import AccountService
 from services.logger_service import LoggerService
 from tools import tools
 from repository.mongo_repository import MongoRepository
+from email.header import decode_header
 
 # region: Arg parser and environment setup
 IS_LOCAL = False # default to production mode, can be overridden by --local flag
@@ -28,7 +29,7 @@ if __name__ == "__main__":
     host = '127.0.0.1' if IS_LOCAL else args.host
 
 # Determine environment - use env var when run by Gunicorn, default to production
-env_file = "../../.env.local" if IS_LOCAL else "../../.env.production"
+env_file = "../../.env.local" if IS_LOCAL else "../../.env"
 load_dotenv(dotenv_path=env_file)
 
 # endregion
@@ -62,6 +63,7 @@ app.after_request(LoggerService.create_response_logger())
 
 repo = MongoRepository(uri=os.getenv("MONGO_URI"), database_name=config["database"]["database_name"])
 account_service = AccountService(repo)
+ProjectService.set_repository(repo)
 
 
 @app.route("/")
@@ -100,11 +102,33 @@ def upload_editor_data():
     else:
         try_response_error_codes(service_response)
 
+@app.route('/upload_survey_data', methods=['POST'])
+def upload_survey_data():
+    project_name = request.form.get("project_name")
+    received_data = request.form.get("survey_data")
+
+    '''
+    service_response, service_data = ProjectService.upload_survey_data(project_name, received_data)
+
+    if  service_response== 200:
+        data = {'message': config["server_responses"]["success"], 'code': 'SUCCESS'}
+        return make_response(jsonify(data), 201)
+    else:
+        try_response_error_codes(service_response)
+    '''
+
+    status, msg = ProjectService.upload_survey_data(project_name, received_data)
+    return jsonify({"message": msg}), status
+
 
 @app.route('/upload_model_files', methods=['POST'])
 def upload_model_files():
     project_name = request.form.get("project_name")
     asset_hash = request.form.get("asset_hash")
+
+    LoggerService.info(f"Model upload request for project: {project_name}, hash: {asset_hash}")
+    LoggerService.info(f"Files received: {list(request.files.keys())}")
+    LoggerService.info(f"Model size: {request.content_length} bytes")
 
     service_response, service_data = ProjectService.upload_model(project_name, asset_hash, request.files)
 
@@ -114,6 +138,69 @@ def upload_model_files():
     else:
         try_response_error_codes(service_response)
 
+@app.route('/upload_image_files', methods=['POST'])
+def upload_image_files():
+    project_name = request.form.get('project_name')
+    asset_hash = request.form.get('asset_hash')
+    files = request.files
+
+    LoggerService.info(f"Image upload request for project: {project_name}, hash: {asset_hash}")
+
+    status, _ = ProjectService.upload_image(project_name, asset_hash, files)
+
+    if status == 201:
+        return make_response(jsonify({'message': 'Images uploaded successfully'}), 201)
+    else:
+        return try_response_error_codes(status)
+
+@app.route('/download_image_files', methods=['GET'])
+def download_image_files():
+    project_name = request.args.get('project_name')
+    asset_hash = request.args.get('asset_hash')
+    # file_name is sent by Unity, but we'll find it in the hash folder
+
+    status, result = ProjectService.download_image(project_name, asset_hash)
+
+    if status == 200:
+        directory, filename = result
+        return send_from_directory(directory, filename)
+    else:
+        return try_response_error_codes(status)
+
+@app.route('/upload_preview_image', methods=['POST'])
+def upload_preview_image():
+    project_name = request.form.get('project_name')
+
+    if project_name:
+        try:
+            project_name = project_name.encode('latin1').decode('utf-8')
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass  # Already perfectly decoded
+
+    if 'file' not in request.files:
+        return make_response(jsonify({'message': 'No file part in the request'}), 400)
+
+    file = request.files['file']
+
+    status, message = ProjectService.upload_preview_image(project_name, file)
+
+    if status == 201:
+        return make_response(jsonify({'message': 'Preview image uploaded successfully'}), 201)
+    else:
+        return try_response_error_codes(status)
+
+
+@app.route('/download_preview_image', methods=['GET'])
+def download_preview_image():
+    project_name = request.args.get('project_name')
+
+    status, result = ProjectService.download_preview_image(project_name)
+
+    if status == 200:
+        directory, filename = result
+        return send_from_directory(directory, filename)
+    else:
+        return try_response_error_codes(status)
 
 @app.route("/download")
 def download():
@@ -126,6 +213,25 @@ def download():
         return make_response(data, 200)
     else:
         try_response_error_codes(service_response)
+
+@app.route("/download_survey_data")
+def download_survey_data():
+    '''
+    project_name = request.args.get('project_name').strip()
+
+    service_response, service_data = ProjectService.download_survey_data(project_name)
+
+    if service_response == 200:
+        data = service_data
+        return make_response(data, 200)
+    else:
+        try_response_error_codes(service_response)
+    '''
+    project_name = request.args.get('project_name').strip()
+    status, data = ProjectService.download_survey_data(project_name)
+    if status == 200:
+        return jsonify(data), 200
+    return jsonify({"error": "Not found"}), status
 
 @app.route("/downloadModels")
 def downloadModels():
@@ -180,8 +286,9 @@ def list_model_files():
 def create_project():
     project_name = request.form.get("project_name")
     project_id = request.form.get('project_id')
+    owner = request.form.get("owner") or request.form.get("project_owner") or request.form.get("projectOwner") or session.get('logged_in_id') or ""
 
-    service_response, service_data = ProjectService.create_project_with_data(project_name, project_id)
+    service_response, service_data = ProjectService.create_project_with_data(project_name, project_id, owner=owner)
 
     if service_response == 201:
         data = {'message': 'Project created', 'code': 'SUCCESS'}
@@ -202,6 +309,37 @@ def edit_project_name():
         return make_response(jsonify(data), 200)
     else:
         try_response_error_codes(service_response)
+
+@app.route('/editProject', methods=['POST'])
+def edit_project():
+    print(request.form.get("oldProjectName"))
+    print(request.form.get("projectName"))
+    print(request.form.get("projectDescription"))
+    print(request.form.get("projectImageID"))
+    # The current name of the project folder used to look it up
+    old_name = request.form.get("oldProjectName")
+
+    # The new values to update
+    new_name = request.form.get("projectName")
+    new_description = request.form.get("projectDescription")
+    new_image_id = request.form.get("projectImageID")
+
+    if not old_name or not new_name:
+        return make_response(jsonify({'message': 'Missing required project names', 'code': 'BAD_REQUEST'}), 400)
+
+    # Call the updated service method passing all fields
+    service_response, _ = ProjectService.edit_project_metadata(
+        old_name=old_name,
+        new_name=new_name,
+        description=new_description,
+        image_id=new_image_id
+    )
+
+    if service_response == 200:
+        data = {'message': 'Project updated successfully', 'code': 'SUCCESS'}
+        return make_response(jsonify(data), 200)
+    else:
+        return try_response_error_codes(service_response)
 
 
 @app.route('/duplicate_project', methods=['POST'])
@@ -263,20 +401,28 @@ def login():
     name = request.form.get("username")
     password = request.form.get("password")
 
-    if not session.get('logged_in_id') :
-        session['logged_in_id'] = ""
-
-    g = session['logged_in_id']
+    g = session.get('logged_in_id')
     LoggerService.info(f"Login attempt for user: {name}")
+
+    if g:
+        # User already has a session, we can skip password check if we want, or validate the token
+        return make_response(jsonify({'message': 'Already logged in', 'code': 'SUCCESS'}), 200)
 
     service_response, service_data = account_service.try_login(g, name, password)
     LoggerService.info(f"Login response code: {service_response}")
 
     if service_response == 201:
+        session['logged_in_id'] = service_data
         data = {'message': 'Logged in sucessfuly', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
     else:
         return try_response_error_codes(service_response)
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.pop('logged_in_id', None)
+    return make_response(jsonify({'message': 'Logged out successfully', 'code': 'SUCCESS'}), 200)
 
 
 @app.route("/register", methods=["GET", "POST"])

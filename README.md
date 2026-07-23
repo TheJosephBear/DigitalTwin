@@ -18,16 +18,31 @@ The application expects `.env.local` file like in `env.example`.
 
 ## Production Deployment
 
-1. **Create `.env.production` file** in the project root:
+1. **Create `.env` file** in the project root:
    ```bash
    MONGO_USERNAME='username'
    MONGO_PASSWORD='password'
    MONGO_DBNAME='digitalTwin'
    MONGO_URI=mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongodb:27017/
    SECRET_KEY='secret'
+   LOG_LEVEL='INFO'
    ```
 
 2. **Deploy using production compose file**:
    ```bash
-   docker-compose -f docker-compose.yml --env-file .env.production up --build -d
+   docker-compose up --build -d
    ```
+   Note: `.env` file is implicit, for specifying use `--env-file .env`
+
+To only refresh the Flask container without touching MongoDB, run:
+
+```bash
+docker-compose rm -fs flask
+docker-compose up -d --build --no-deps flask
+```
+
+To follow live logs for the Flask container, run:
+
+```bash
+docker-compose logs -f flask
+```

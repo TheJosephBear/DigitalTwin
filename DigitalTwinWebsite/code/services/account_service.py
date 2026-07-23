@@ -51,13 +51,18 @@ class AccountService:
 
     def try_login(self, sess, name, password):
         try:
-            sess = str(self.find_user_id(name, password)) # this entire thing needs an absolute rework
-            if sess != "None":
-                return 201, None
+            if sess:
+                # Check if session ID is valid (e.g., user exists)
+                # Since we don't have a specific find by id right now, let's assume it implies a valid session for now or implement it
+                pass
+
+            user_id = self.find_user_id(name, password)
+            if user_id is not None:
+                return 201, str(user_id)
             else:
                 return 401, None # Unauthorized - User not found or invalid credentials
         except Exception as e:
-            LoggerService.info(f"Register exception: {e}")
+            LoggerService.info(f"Login exception: {e}")
             return 500, None
 
     def try_register(self, name, password):
