@@ -16,3 +16,6 @@ instance/
 
 # MongoDB
 data/
+
+# Projects
+projects/
