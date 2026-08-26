@@ -189,6 +189,8 @@ def fill_mongo_with_projects(owner=None, owner_id=None, default_owner=None, forc
                     print(f"Failed to update owner in {save_path}: {write_err}")
 
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        has_survey = data.get("hasSurvey", existing.get("hasSurvey", False) if existing else False)
+        resp_count = data.get("respondentCount", existing.get("respondentCount", 0) if existing else 0)
         project_doc = {
             "name": project_name,
             "projectName": project_name,
@@ -196,6 +198,8 @@ def fill_mongo_with_projects(owner=None, owner_id=None, default_owner=None, forc
             "projectDescription": description,
             "projectImageID": image_id,
             "owner": resolved_owner,
+            "hasSurvey": bool(has_survey),
+            "respondentCount": int(resp_count),
             "updated_at": now
         }
 

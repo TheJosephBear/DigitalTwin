@@ -307,15 +307,33 @@ class ProjectService:
                 "survey_data": json_data
             }
 
+            # Check if survey contains any questions
+            questions = []
+            if isinstance(json_data, dict):
+                questions = json_data.get("Questions") or json_data.get("questions") or []
+            elif isinstance(json_data, list):
+                questions = json_data
+            has_survey = isinstance(questions, list) and len(questions) > 0
+
             # Check if it exists to decide between update or create
             existing = r.read_record(ProjectService.SURVEY_COLLECTION, query)
 
             if existing:
                 r.update_record(ProjectService.SURVEY_COLLECTION, query, survey_document)
-                return 200, "Survey updated"
+                res_code, res_msg = 200, "Survey updated"
             else:
                 r.create_record(ProjectService.SURVEY_COLLECTION, survey_document)
-                return 201, "Survey created"
+                res_code, res_msg = 201, "Survey created"
+
+            # Update project document with hasSurvey status
+            try:
+                proj_res = r.update_record(ProjectService.PROJECT_COLLECTION, {"projectName": project_name}, {"hasSurvey": has_survey})
+                if proj_res.get("matched_count", 0) == 0:
+                    r.update_record(ProjectService.PROJECT_COLLECTION, {"name": project_name}, {"hasSurvey": has_survey})
+            except Exception as proj_err:
+                LoggerService.error(f"Error updating hasSurvey in project doc: {proj_err}")
+
+            return res_code, res_msg
 
         except json.JSONDecodeError:
             return 400, "Invalid JSON format"
@@ -365,6 +383,19 @@ class ProjectService:
             }
 
             r.create_record(ProjectService.SURVEY_RESPONSES_COLLECTION, response_document)
+
+            # Atomically increment respondent count and set hasSurvey to True
+            try:
+                update_op = {
+                    "$inc": {"respondentCount": 1},
+                    "$set": {"hasSurvey": True}
+                }
+                proj_res = r.update_record(ProjectService.PROJECT_COLLECTION, {"projectName": project_name}, update_op)
+                if proj_res.get("matched_count", 0) == 0:
+                    r.update_record(ProjectService.PROJECT_COLLECTION, {"name": project_name}, update_op)
+            except Exception as proj_err:
+                LoggerService.error(f"Error updating respondentCount in project doc: {proj_err}")
+
             return 201, "Response submitted successfully"
         except json.JSONDecodeError:
             return 400, "Invalid JSON format"
@@ -678,7 +709,9 @@ class ProjectService:
                 "projectId": project_id,
                 "projectDescription": description,
                 "projectImageID": image_id,
-                "owner": owner
+                "owner": owner,
+                "hasSurvey": False,
+                "respondentCount": 0
             }
             with open(file_path, "w", encoding='utf-8') as file:
                 file.write(json.dumps(data))
@@ -693,6 +726,8 @@ class ProjectService:
                         "projectDescription": description,
                         "projectImageID": image_id,
                         "owner": owner,
+                        "hasSurvey": False,
+                        "respondentCount": 0,
                         "created_at": now,
                         "updated_at": now
                     }
@@ -704,6 +739,10 @@ class ProjectService:
                     if existing:
                         if not owner and "owner" in existing:
                             project_doc["owner"] = existing["owner"]
+                        if "hasSurvey" in existing:
+                            project_doc["hasSurvey"] = existing["hasSurvey"]
+                        if "respondentCount" in existing:
+                            project_doc["respondentCount"] = existing["respondentCount"]
                         ProjectService.repo.update_record(ProjectService.PROJECT_COLLECTION, {"_id": existing["_id"]}, project_doc)
                     else:
                         ProjectService.repo.create_record(ProjectService.PROJECT_COLLECTION, project_doc)
@@ -904,6 +943,7 @@ class ProjectService:
         desc = ""
         img_id = ""
         owner = str(user_id) if user_id else ""
+        has_survey_copied = False
         if os.path.exists(save_path):
             with open(save_path, "r+", encoding='utf-8') as f:
                 data = json.load(f)
@@ -914,12 +954,21 @@ class ProjectService:
                 if not owner:
                     owner = data.get("owner", "")
                 data["owner"] = owner
+                has_survey_copied = bool(data.get("hasSurvey", False))
+                data["hasSurvey"] = has_survey_copied
+                data["respondentCount"] = 0
                 f.seek(0)
                 f.truncate()
                 json.dump(data, f, indent=4)
 
         if ProjectService.repo:
             try:
+                orig_doc = ProjectService.repo.read_record(ProjectService.PROJECT_COLLECTION, {"projectName": old_name})
+                if not orig_doc:
+                    orig_doc = ProjectService.repo.read_record(ProjectService.PROJECT_COLLECTION, {"name": old_name})
+                if orig_doc and "hasSurvey" in orig_doc:
+                    has_survey_copied = bool(orig_doc.get("hasSurvey", False))
+
                 now = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 new_doc = {
                     "name": new_name,
@@ -928,6 +977,8 @@ class ProjectService:
                     "projectDescription": desc,
                     "projectImageID": img_id,
                     "owner": owner,
+                    "hasSurvey": has_survey_copied,
+                    "respondentCount": 0,
                     "created_at": now,
                     "updated_at": now
                 }
@@ -959,7 +1010,9 @@ class ProjectService:
                             "projectId": doc.get("projectId", ""),
                             "projectDescription": doc.get("projectDescription", ""),
                             "projectImageID": doc.get("projectImageID", ""),
-                            "owner": doc.get("owner", "")
+                            "owner": doc.get("owner", ""),
+                            "hasSurvey": bool(doc.get("hasSurvey", False)),
+                            "respondentCount": int(doc.get("respondentCount", 0))
                         })
                     return 200, projects
                 except Exception as mongo_err:
@@ -984,7 +1037,9 @@ class ProjectService:
                                     "projectId": data.get("projectId"),
                                     "projectDescription": data.get("projectDescription", ""),
                                     "projectImageID": data.get("projectImageID", ""),
-                                    "owner": data.get("owner", "")
+                                    "owner": data.get("owner", ""),
+                                    "hasSurvey": bool(data.get("hasSurvey", False)),
+                                    "respondentCount": int(data.get("respondentCount", 0))
                                 })
                         except:
                             continue

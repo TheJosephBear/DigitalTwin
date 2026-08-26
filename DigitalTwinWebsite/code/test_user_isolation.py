@@ -54,6 +54,7 @@ class InMemoryRepository:
 
     def update_record(self, collection_name, query, update_data):
         col = self.collections.get(collection_name, [])
+        matched = 0
         updated = 0
         for item in col:
             match = True
@@ -62,9 +63,17 @@ class InMemoryRepository:
                     match = False
                     break
             if match:
-                item.update(update_data)
+                matched += 1
+                if any(isinstance(k, str) and k.startswith("$") for k in update_data.keys()):
+                    if "$set" in update_data:
+                        item.update(update_data["$set"])
+                    if "$inc" in update_data:
+                        for ik, iv in update_data["$inc"].items():
+                            item[ik] = item.get(ik, 0) + iv
+                else:
+                    item.update(update_data)
                 updated += 1
-        return {"modified_count": updated}
+        return {"matched_count": matched, "modified_count": updated}
 
     def delete_record(self, collection_name, query):
         col = self.collections.get(collection_name, [])
@@ -290,6 +299,69 @@ class UserIsolationTestCase(unittest.TestCase):
         })
         self.assertEqual(res_del_owner.status_code, 200)
         print("Test 05 passed: Edit, duplicate, and delete permissions enforced.")
+
+    def test_06_survey_status_and_respondent_count(self):
+        print("\n--- Running Test 06: Survey status and respondent count tracking ---")
+        # 1. User 1 creates project
+        create_res = self.client1.post('/createProject', data={'project_name': self.project_p1, 'project_id': 'id_p1'})
+        self.assertEqual(create_res.status_code, 201)
+
+        # Verify initial values via getAllProjects: hasSurvey = False, respondentCount = 0
+        get_res = self.client1.get('/getAllProjects')
+        self.assertEqual(get_res.status_code, 201)
+        projects = json.loads(get_res.data.decode('utf-8'))['projects']
+        p1 = next((p for p in projects if p['projectName'] == self.project_p1), None)
+        self.assertIsNotNone(p1)
+        self.assertFalse(p1.get('hasSurvey', False), "hasSurvey should initially be False")
+        self.assertEqual(p1.get('respondentCount', 0), 0, "respondentCount should initially be 0")
+
+        # 2. Upload survey data with questions -> hasSurvey should become True
+        survey_json = json.dumps({
+            "Questions": [
+                {"Text": "Otázka 1?", "Answers": ["A", "B"]}
+            ]
+        })
+        upload_s_res = self.client1.post('/upload_survey_data', data={
+            'project_name': self.project_p1,
+            'survey_data': survey_json
+        })
+        self.assertIn(upload_s_res.status_code, [200, 201])
+
+        # Check that hasSurvey is now True
+        get_res2 = self.client1.get('/getAllProjects')
+        projects2 = json.loads(get_res2.data.decode('utf-8'))['projects']
+        p1_after_survey = next((p for p in projects2 if p['projectName'] == self.project_p1), None)
+        self.assertTrue(p1_after_survey.get('hasSurvey', False), "hasSurvey should be True after uploading questions")
+        self.assertEqual(p1_after_survey.get('respondentCount', 0), 0, "respondentCount should still be 0 before responses")
+
+        # 3. Submit 2 responses anonymously -> respondentCount should become 2
+        for i in range(2):
+            resp_sub = self.unauth_client.post('/upload_survey_response', data={
+                'project_name': self.project_p1,
+                'response_data': json.dumps({"answers": [i]})
+            })
+            self.assertEqual(resp_sub.status_code, 201)
+
+        get_res3 = self.client1.get('/getAllProjects')
+        projects3 = json.loads(get_res3.data.decode('utf-8'))['projects']
+        p1_after_resps = next((p for p in projects3 if p['projectName'] == self.project_p1), None)
+        self.assertTrue(p1_after_resps.get('hasSurvey', False))
+        self.assertEqual(p1_after_resps.get('respondentCount', 0), 2, "respondentCount should be 2 after 2 submissions")
+
+        # 4. Duplicate project -> duplicated project should keep hasSurvey = True, but respondentCount = 0
+        dup_res = self.client1.post('/duplicate_project', data={'project_name': self.project_p1})
+        self.assertEqual(dup_res.status_code, 201)
+
+        get_res4 = self.client1.get('/getAllProjects')
+        projects4 = json.loads(get_res4.data.decode('utf-8'))['projects']
+        p1_dup = next((p for p in projects4 if p['projectName'].startswith(f"{self.project_p1} (")), None)
+        self.assertIsNotNone(p1_dup, "Duplicated project should exist")
+        self.assertTrue(p1_dup.get('hasSurvey', False), "Duplicated project should inherit hasSurvey = True")
+        self.assertEqual(p1_dup.get('respondentCount', 0), 0, "Duplicated project respondentCount should be reset to 0")
+
+        # Cleanup duplicated project
+        self.client1.delete('/deleteProject', data={'project_name': p1_dup['projectName']})
+        print("Test 06 passed: Survey status and respondent count correctly maintained and returned.")
 
 if __name__ == '__main__':
     unittest.main()
