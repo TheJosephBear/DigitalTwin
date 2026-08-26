@@ -4,6 +4,8 @@ import uuid
 import json
 import re
 import datetime
+import csv
+import io
 from email.header import decode_header
 from services.logger_service import LoggerService
 
@@ -11,6 +13,7 @@ class ProjectService:
 
     projects_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'projects'))
     SURVEY_COLLECTION = "surveys"
+    SURVEY_RESPONSES_COLLECTION = "survey_responses"
     PROJECT_COLLECTION = "projects"
     repo = None
 
@@ -267,6 +270,288 @@ class ProjectService:
         except Exception as e:
             print(f"Error fetching survey: {e}")
             return 500, None
+
+    @staticmethod
+    def upload_survey_response(project_name, data, repo=None):
+        """Uploads a survey response/submission into MongoDB."""
+        try:
+            r = repo or ProjectService.repo
+            if not r:
+                return 500, "Repository not initialized"
+
+            if isinstance(data, str):
+                json_data = json.loads(data)
+            else:
+                json_data = data
+
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            response_document = {
+                "project_name": project_name,
+                "submitted_at": timestamp,
+                "response_data": json_data
+            }
+
+            r.create_record(ProjectService.SURVEY_RESPONSES_COLLECTION, response_document)
+            return 201, "Response submitted successfully"
+        except json.JSONDecodeError:
+            return 400, "Invalid JSON format"
+        except Exception as e:
+            print(f"Error saving survey response to Mongo: {e}")
+            return 500, str(e)
+
+    @staticmethod
+    def download_survey_responses(project_name, repo=None):
+        """Retrieves all survey responses for a project from MongoDB."""
+        try:
+            r = repo or ProjectService.repo
+            if not r:
+                return 500, None
+
+            query = {"project_name": project_name}
+            collection = r.read_all_records(ProjectService.SURVEY_RESPONSES_COLLECTION)
+            records = list(collection.find(query))
+
+            for rec in records:
+                if "_id" in rec:
+                    rec["_id"] = str(rec["_id"])
+
+            return 200, records
+        except Exception as e:
+            print(f"Error fetching survey responses: {e}")
+            return 500, None
+
+    @staticmethod
+    def dereference_unity_json(data):
+        """Resolves Unity [SerializeReference] JSON structure into a regular nested Python dict/list."""
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                return data
+
+        if not isinstance(data, dict):
+            return data
+
+        ref_ids = {}
+        if "references" in data and isinstance(data["references"], dict):
+            ref_list = data["references"].get("RefIds", [])
+            for item in ref_list:
+                if isinstance(item, dict) and "rid" in item:
+                    ref_ids[item["rid"]] = item.get("data", {})
+
+        def resolve(node, visited=None):
+            if visited is None:
+                visited = set()
+            if isinstance(node, dict):
+                if "rid" in node and len(node) == 1 and node["rid"] in ref_ids:
+                    rid = node["rid"]
+                    if rid in visited:
+                        return {}
+                    visited.add(rid)
+                    resolved = resolve(ref_ids[rid], visited)
+                    visited.remove(rid)
+                    return resolved
+                return {k: resolve(v, visited) for k, v in node.items()}
+            elif isinstance(node, list):
+                return [resolve(elem, visited) for elem in node]
+            return node
+
+        return resolve(data)
+
+    @staticmethod
+    def export_survey_responses_csv(project_name, repo=None):
+        """Generates a CSV file formatted for Excel containing all submitted survey responses."""
+        try:
+            r = repo or ProjectService.repo
+            if not r:
+                return 500, "Repository not initialized"
+
+            # 1. Fetch survey definition
+            status, survey_data = ProjectService.download_survey_data(project_name, repo=r)
+            if status != 200 or not survey_data:
+                survey_data = {}
+
+            # Dereference Unity [SerializeReference] JSON structures
+            survey_data = ProjectService.dereference_unity_json(survey_data)
+
+            questions = survey_data.get("Questions") or survey_data.get("questions") or []
+
+            # 2. Fetch responses
+            query = {"project_name": project_name}
+            collection = r.read_all_records(ProjectService.SURVEY_RESPONSES_COLLECTION)
+            submissions = list(collection.find(query))
+
+            if not submissions:
+                return 404, "No responses found for this project"
+
+            # 3. Build CSV headers and questions layout
+            headers = ["Čas odeslání", "Název průzkumu"]
+            column_descriptors = []
+
+            for q_idx, q in enumerate(questions):
+                q_id = q.get("Id") if q.get("Id") is not None else q.get("id")
+                if q_id is None:
+                    q_id = q_idx
+
+                raw_title = q.get("Title") or q.get("title")
+                q_title = raw_title.strip() if (raw_title and isinstance(raw_title, str) and raw_title.strip()) else f"Otázka {q_idx + 1}"
+                q_type = q.get("QuestionType") if q.get("QuestionType") is not None else q.get("questionType")
+
+                # Numeric or string enum handling
+                # QuestionType: 5=MultipleChoiceGrid, 6=CheckboxGrid, 8=LinearScale
+                is_grid = q_type in [5, 6, "MultipleChoiceGrid", "CheckboxGrid"]
+                is_scale = q_type in [8, "LinearScale"]
+
+                if is_grid:
+                    rows = q.get("Rows") or q.get("rows") or []
+                    for r_idx, row_name in enumerate(rows):
+                        headers.append(f"{q_title} [{row_name}]")
+                        column_descriptors.append({
+                            "q_id": q_id,
+                            "type": "grid",
+                            "q_obj": q,
+                            "row_idx": r_idx
+                        })
+                elif is_scale:
+                    answers = q.get("Answers") or q.get("answers") or []
+                    if len(answers) > 1:
+                        for r_idx, ans in enumerate(answers):
+                            ans_txt = ans.get("Text") or ans.get("text") or f"Položka {r_idx+1}"
+                            headers.append(f"{q_title} [{ans_txt}]")
+                            column_descriptors.append({
+                                "q_id": q_id,
+                                "type": "scale",
+                                "q_obj": q,
+                                "row_idx": r_idx
+                            })
+                    else:
+                        headers.append(q_title)
+                        column_descriptors.append({
+                            "q_id": q_id,
+                            "type": "scale",
+                            "q_obj": q,
+                            "row_idx": 0
+                        })
+                else:
+                    headers.append(q_title)
+                    column_descriptors.append({
+                        "q_id": q_id,
+                        "type": "standard",
+                        "q_obj": q
+                    })
+
+            # If survey had no questions defined, build headers dynamically from response data
+            if not column_descriptors:
+                headers = ["Čas odeslání", "Název průzkumu", "Data odpovědí"]
+
+            output = io.StringIO()
+            writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL)
+            writer.writerow(headers)
+
+            # 4. Write data rows
+            for sub in submissions:
+                submitted_at = sub.get("submitted_at", "")
+                data = sub.get("response_data", {})
+                data = ProjectService.dereference_unity_json(data)
+
+                survey_name = data.get("SurveyName") or data.get("surveyName") or project_name
+                timestamp = data.get("Timestamp") or data.get("timestamp") or submitted_at
+
+                if not column_descriptors:
+                    writer.writerow([timestamp, survey_name, json.dumps(data, ensure_ascii=False)])
+                    continue
+
+                responses = data.get("Responses") or data.get("responses") or []
+
+                row_values = [timestamp, survey_name]
+
+                for desc in column_descriptors:
+                    q_id = desc["q_id"]
+                    q_obj = desc["q_obj"]
+                    col_type = desc["type"]
+
+                    resp = next((r for r in responses if (r.get("QuestionId") == q_id or r.get("questionId") == q_id or r.get("Id") == q_id)), None)
+                    if not resp:
+                        row_values.append("")
+                        continue
+
+                    if col_type == "grid":
+                        row_idx = desc["row_idx"]
+                        grid_resps = resp.get("GridResponses") or resp.get("gridResponses") or []
+                        row_resp = next((gr for gr in grid_resps if (gr.get("RowIdx") == row_idx or gr.get("rowIdx") == row_idx)), None)
+
+                        if not row_resp:
+                            row_values.append("")
+                        else:
+                            cols = q_obj.get("Columns") or q_obj.get("columns") or []
+                            sel_col = row_resp.get("SelectedColumnIdx") if row_resp.get("SelectedColumnIdx") is not None else row_resp.get("selectedColumnIdx", -1)
+                            sel_cols = row_resp.get("SelectedColumnIndices") or row_resp.get("selectedColumnIndices") or []
+
+                            if sel_cols:
+                                txts = [cols[c] if 0 <= c < len(cols) else str(c+1) for c in sel_cols]
+                                row_values.append(", ".join(txts))
+                            elif sel_col is not None and sel_col >= 0:
+                                txt = cols[sel_col] if 0 <= sel_col < len(cols) else str(sel_col+1)
+                                row_values.append(txt)
+                            else:
+                                row_values.append("")
+
+                    elif col_type == "scale":
+                        row_idx = desc["row_idx"]
+                        scale_resps = resp.get("ScaleResponses") or resp.get("scaleResponses") or []
+                        scale_resp = next((sr for sr in scale_resps if (sr.get("RowIdx") == row_idx or sr.get("rowIdx") == row_idx)), None)
+
+                        if scale_resp:
+                            val = scale_resp.get("Value") if scale_resp.get("Value") is not None else scale_resp.get("value", "")
+                            row_values.append(str(val))
+                        else:
+                            sel_idx = resp.get("SelectedIdx") if resp.get("SelectedIdx") is not None else resp.get("selectedIdx", -1)
+                            row_values.append(str(sel_idx) if sel_idx is not None and sel_idx >= 0 else "")
+
+                    else: # Standard question (Choice, Text, Dropdown, Image)
+                        resp_text = resp.get("ResponseText") or resp.get("responseText") or ""
+                        sel_idx = resp.get("SelectedIdx") if resp.get("SelectedIdx") is not None else resp.get("selectedIdx", -1)
+                        sel_indices = resp.get("SelectedIndices") or resp.get("selectedIndices") or []
+                        answers = q_obj.get("Answers") or q_obj.get("answers") or []
+                        q_type = q_obj.get("QuestionType") if q_obj.get("QuestionType") is not None else q_obj.get("questionType")
+
+                        # Text questions (ShortAnswer=2, Paragraph=3)
+                        if q_type in [2, 3, "ShortAnswer", "Paragraph"] or (not answers and resp_text):
+                            row_values.append(resp_text)
+                        elif sel_indices:
+                            ans_texts = []
+                            for idx in sel_indices:
+                                if 0 <= idx < len(answers):
+                                    ans_obj = answers[idx]
+                                    txt = ans_obj.get("Text") or ans_obj.get("text") or ans_obj.get("ImageID") or f"Možnost {idx+1}"
+                                    ans_texts.append(txt)
+                                else:
+                                    ans_texts.append(str(idx+1))
+                            if resp_text:
+                                ans_texts.append(resp_text)
+                            row_values.append("; ".join(ans_texts))
+                        elif sel_idx is not None and sel_idx >= 0:
+                            ans_text = ""
+                            if 0 <= sel_idx < len(answers):
+                                ans_obj = answers[sel_idx]
+                                ans_text = ans_obj.get("Text") or ans_obj.get("text") or ans_obj.get("ImageID") or f"Možnost {sel_idx+1}"
+                            if resp_text:
+                                ans_text = f"{ans_text} ({resp_text})" if ans_text else resp_text
+                            row_values.append(ans_text if ans_text else (resp_text if resp_text else ""))
+                        elif resp_text:
+                            row_values.append(resp_text)
+                        else:
+                            row_values.append("")
+
+                writer.writerow(row_values)
+
+            # Prepend UTF-8 BOM so Excel opens Czech characters properly
+            csv_content = '\ufeff' + output.getvalue()
+            return 200, csv_content
+
+        except Exception as e:
+            print(f"Error exporting survey responses CSV: {e}")
+            return 500, str(e)
 
     @staticmethod
     def download_data(name):

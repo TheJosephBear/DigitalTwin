@@ -233,6 +233,48 @@ def download_survey_data():
         return jsonify(data), 200
     return jsonify({"error": "Not found"}), status
 
+@app.route('/upload_survey_response', methods=['POST'])
+def upload_survey_response():
+    project_name = request.form.get("project_name")
+    received_data = request.form.get("response_data")
+
+    if not project_name or not received_data:
+        return jsonify({"message": "Missing project_name or response_data"}), 400
+
+    status, msg = ProjectService.upload_survey_response(project_name, received_data)
+    return jsonify({"message": msg}), status
+
+@app.route('/download_survey_responses', methods=['GET'])
+def download_survey_responses():
+    project_name = request.args.get('project_name')
+    if not project_name:
+        return jsonify({"message": "Missing project_name"}), 400
+
+    project_name = project_name.strip()
+    status, data = ProjectService.download_survey_responses(project_name)
+    if status == 200:
+        return jsonify(data), 200
+    return jsonify({"error": "Not found"}), status
+
+@app.route('/export_survey_csv', methods=['GET'])
+def export_survey_csv():
+    project_name = request.args.get('project_name')
+    if not project_name:
+        return jsonify({"message": "Missing project_name"}), 400
+
+    project_name = project_name.strip()
+    status, csv_data = ProjectService.export_survey_responses_csv(project_name)
+
+    if status == 200:
+        response = make_response(csv_data)
+        response.headers["Content-Disposition"] = f"attachment; filename=odpovedi_{project_name}.csv"
+        response.headers["Content-Type"] = "text/csv; charset=utf-8"
+        return response
+    elif status == 404:
+        return jsonify({"message": "Pro tento projekt nebyly nalezeny žádné odpovědi."}), 404
+    else:
+        return jsonify({"error": csv_data}), status
+
 @app.route("/downloadModels")
 def downloadModels():
     project_name = request.args.get('project_name').strip()
