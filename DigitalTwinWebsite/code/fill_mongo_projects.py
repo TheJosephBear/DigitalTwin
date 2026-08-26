@@ -31,12 +31,14 @@ def fill_mongo_with_projects(default_owner=None):
         load_dotenv()
 
     # Database configuration
-    db_name = "digitalTwin"
-    config_path = os.path.join(os.path.dirname(base_dir), "conf.toml")
-    if os.path.exists(config_path) and tomllib is not None:
-        with open(config_path, "rb") as f:
-            config = tomllib.load(f)
-            db_name = config.get("database", {}).get("database_name", db_name)
+    db_name = os.getenv("MONGO_DBNAME")
+    if not db_name:
+        db_name = "digitalTwin"
+        config_path = os.path.join(os.path.dirname(base_dir), "conf.toml")
+        if os.path.exists(config_path) and tomllib is not None:
+            with open(config_path, "rb") as f:
+                config = tomllib.load(f)
+                db_name = config.get("database", {}).get("database_name", db_name)
 
     mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
     print(f"Connecting to Mongo at {mongo_uri}, database: {db_name}")

@@ -14,6 +14,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL}
     volumes:
       - ./DigitalTwinWebsite/code/projects:/app/code/projects
+      - ./DigitalTwinWebsite/code/static:/app/code/static
     depends_on:
       mongodb:
         condition: service_healthy
@@ -21,7 +22,7 @@ services:
       - app-network
     ports:
       - "127.0.0.1:8050:5000"
-    restart: on-failure
+    restart: unless-stopped
 
   mongodb:
     image: mongo:latest
@@ -44,7 +45,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
-    restart: on-failure
+    restart: unless-stopped
 
 networks:
   app-network:
