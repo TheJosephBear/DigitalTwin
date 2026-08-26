@@ -18,6 +18,14 @@ The application expects `.env.local` file like in `env.example`.
 
 ## Production Deployment
 
+### 1. Upload changes to server (Git-FTP)
+To upload changed files to the server:
+```bash
+git ftp push
+```
+> **Note**: For initial upload/setup, run `git ftp init` (or `git ftp catchup` if files already exist on the server).
+
+### 2. Server setup & Docker
 1. **Create `.env` file** in the project root:
    ```bash
    MONGO_USERNAME='username'
