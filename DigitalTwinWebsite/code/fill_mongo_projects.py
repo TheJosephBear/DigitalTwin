@@ -3,6 +3,7 @@ import sys
 import json
 import uuid
 import datetime
+import argparse
 from dotenv import load_dotenv
 
 try:
@@ -15,7 +16,7 @@ except ImportError:
 
 from repository.mongo_repository import MongoRepository
 
-def fill_mongo_with_projects():
+def fill_mongo_with_projects(default_owner=None):
     # Load environment variables
     base_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.abspath(os.path.join(base_dir, "..", ".."))
@@ -92,6 +93,15 @@ def fill_mongo_with_projects():
         description = data.get("projectDescription", "")
         image_id = data.get("projectImageID", "")
         owner = data.get("owner", "")
+        if not owner and default_owner:
+            owner = default_owner
+            data["owner"] = owner
+            try:
+                with open(save_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=4)
+                print(f"Assigned owner '{default_owner}' to {save_path}")
+            except Exception as write_err:
+                print(f"Failed to update owner in {save_path}: {write_err}")
 
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         project_doc = {
@@ -130,4 +140,8 @@ def fill_mongo_with_projects():
     print(f"\nDone! Created: {count_created}, Updated: {count_updated}")
 
 if __name__ == "__main__":
-    fill_mongo_with_projects()
+    parser = argparse.ArgumentParser(description="Fill MongoDB with projects from disk")
+    parser.add_argument("--owner", type=str, default=None, help="User ID to assign to projects without an owner")
+    args = parser.parse_args()
+
+    fill_mongo_with_projects(default_owner=args.owner)

@@ -89,40 +89,47 @@ def serve_streaming_assets(filename):
 def serve_template_data(filename):
     return send_from_directory("static/Unity/EditorBuild/TemplateData", filename)
 
+def get_current_user_id():
+    user_id = session.get('logged_in_id')
+    return user_id
+
+
 @app.route('/upload_editor_data', methods=['POST'])
 def upload_editor_data():
+    user_id = get_current_user_id()
+    if not user_id:
+        return try_response_error_codes(401)
+
     project_name = request.form.get("project_name")
     received_data = request.form.get("myData")
 
-    service_response, service_data = ProjectService.upload_editor_data(project_name, received_data)
+    service_response, service_data = ProjectService.upload_editor_data(project_name, received_data, user_id=user_id)
 
-    if  service_response== 200:
+    if service_response == 200:
         data = {'message': config["server_responses"]["success"], 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
     else:
-        try_response_error_codes(service_response)
+        return try_response_error_codes(service_response)
 
 @app.route('/upload_survey_data', methods=['POST'])
 def upload_survey_data():
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"message": "Unauthorized"}), 401
+
     project_name = request.form.get("project_name")
     received_data = request.form.get("survey_data")
 
-    '''
-    service_response, service_data = ProjectService.upload_survey_data(project_name, received_data)
-
-    if  service_response== 200:
-        data = {'message': config["server_responses"]["success"], 'code': 'SUCCESS'}
-        return make_response(jsonify(data), 201)
-    else:
-        try_response_error_codes(service_response)
-    '''
-
-    status, msg = ProjectService.upload_survey_data(project_name, received_data)
+    status, msg = ProjectService.upload_survey_data(project_name, received_data, user_id=user_id)
     return jsonify({"message": msg}), status
 
 
 @app.route('/upload_model_files', methods=['POST'])
 def upload_model_files():
+    user_id = get_current_user_id()
+    if not user_id:
+        return try_response_error_codes(401)
+
     project_name = request.form.get("project_name")
     asset_hash = request.form.get("asset_hash")
 
@@ -130,23 +137,27 @@ def upload_model_files():
     LoggerService.info(f"Files received: {list(request.files.keys())}")
     LoggerService.info(f"Model size: {request.content_length} bytes")
 
-    service_response, service_data = ProjectService.upload_model(project_name, asset_hash, request.files)
+    service_response, service_data = ProjectService.upload_model(project_name, asset_hash, request.files, user_id=user_id)
 
     if service_response == 201:
         data = {'message': config["server_responses"]["success"], 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
     else:
-        try_response_error_codes(service_response)
+        return try_response_error_codes(service_response)
 
 @app.route('/upload_image_files', methods=['POST'])
 def upload_image_files():
+    user_id = get_current_user_id()
+    if not user_id:
+        return try_response_error_codes(401)
+
     project_name = request.form.get('project_name')
     asset_hash = request.form.get('asset_hash')
     files = request.files
 
     LoggerService.info(f"Image upload request for project: {project_name}, hash: {asset_hash}")
 
-    status, _ = ProjectService.upload_image(project_name, asset_hash, files)
+    status, _ = ProjectService.upload_image(project_name, asset_hash, files, user_id=user_id)
 
     if status == 201:
         return make_response(jsonify({'message': 'Images uploaded successfully'}), 201)
@@ -169,6 +180,10 @@ def download_image_files():
 
 @app.route('/upload_preview_image', methods=['POST'])
 def upload_preview_image():
+    user_id = get_current_user_id()
+    if not user_id:
+        return try_response_error_codes(401)
+
     project_name = request.form.get('project_name')
 
     if project_name:
@@ -182,7 +197,7 @@ def upload_preview_image():
 
     file = request.files['file']
 
-    status, message = ProjectService.upload_preview_image(project_name, file)
+    status, message = ProjectService.upload_preview_image(project_name, file, user_id=user_id)
 
     if status == 201:
         return make_response(jsonify({'message': 'Preview image uploaded successfully'}), 201)
@@ -246,30 +261,42 @@ def upload_survey_response():
 
 @app.route('/download_survey_responses', methods=['GET'])
 def download_survey_responses():
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"message": "Unauthorized"}), 401
+
     project_name = request.args.get('project_name')
     if not project_name:
         return jsonify({"message": "Missing project_name"}), 400
 
     project_name = project_name.strip()
-    status, data = ProjectService.download_survey_responses(project_name)
+    status, data = ProjectService.download_survey_responses(project_name, user_id=user_id)
     if status == 200:
         return jsonify(data), 200
+    elif status == 403:
+        return jsonify({"message": "Forbidden - You do not own this project"}), 403
     return jsonify({"error": "Not found"}), status
 
 @app.route('/export_survey_csv', methods=['GET'])
 def export_survey_csv():
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"message": "Unauthorized"}), 401
+
     project_name = request.args.get('project_name')
     if not project_name:
         return jsonify({"message": "Missing project_name"}), 400
 
     project_name = project_name.strip()
-    status, csv_data = ProjectService.export_survey_responses_csv(project_name)
+    status, csv_data = ProjectService.export_survey_responses_csv(project_name, user_id=user_id)
 
     if status == 200:
         response = make_response(csv_data)
         response.headers["Content-Disposition"] = f"attachment; filename=odpovedi_{project_name}.csv"
         response.headers["Content-Type"] = "text/csv; charset=utf-8"
         return response
+    elif status == 403:
+        return jsonify({"message": "Forbidden - You do not own this project"}), 403
     elif status == 404:
         return jsonify({"message": "Pro tento projekt nebyly nalezeny žádné odpovědi."}), 404
     else:
@@ -326,34 +353,45 @@ def list_model_files():
 
 @app.route('/createProject', methods=['POST'])
 def create_project():
+    user_id = get_current_user_id()
+    if not user_id:
+        return try_response_error_codes(401)
+
     project_name = request.form.get("project_name")
     project_id = request.form.get('project_id')
-    owner = request.form.get("owner") or request.form.get("project_owner") or request.form.get("projectOwner") or session.get('logged_in_id') or ""
 
-    service_response, service_data = ProjectService.create_project_with_data(project_name, project_id, owner=owner)
+    service_response, service_data = ProjectService.create_project_with_data(project_name, project_id, owner=user_id)
 
     if service_response == 201:
         data = {'message': 'Project created', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
     else:
-        try_response_error_codes(service_response)
+        return try_response_error_codes(service_response)
 
 
 @app.route('/editProjectName', methods=['POST'])
 def edit_project_name():
+    user_id = get_current_user_id()
+    if not user_id:
+        return try_response_error_codes(401)
+
     old_name = request.form.get("oldProjectName")
     new_name = request.form.get("newProjectName")
 
-    service_response, service_data = ProjectService.edit_project_name(old_name, new_name)
+    service_response, service_data = ProjectService.edit_project_name(old_name, new_name, user_id=user_id)
 
     if service_response == 200:
         data = {'message': 'Project name updated', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 200)
     else:
-        try_response_error_codes(service_response)
+        return try_response_error_codes(service_response)
 
 @app.route('/editProject', methods=['POST'])
 def edit_project():
+    user_id = get_current_user_id()
+    if not user_id:
+        return try_response_error_codes(401)
+
     print(request.form.get("oldProjectName"))
     print(request.form.get("projectName"))
     print(request.form.get("projectDescription"))
@@ -374,7 +412,8 @@ def edit_project():
         old_name=old_name,
         new_name=new_name,
         description=new_description,
-        image_id=new_image_id
+        image_id=new_image_id,
+        user_id=user_id
     )
 
     if service_response == 200:
@@ -386,35 +425,46 @@ def edit_project():
 
 @app.route('/duplicate_project', methods=['POST'])
 def duplicate_project():
+    user_id = get_current_user_id()
+    if not user_id:
+        return try_response_error_codes(401)
+
     old_name = request.form.get("project_name")
     new_name = old_name+" -copy"
 
-    service_response, service_data = ProjectService.duplicate_project(old_name, new_name)
+    service_response, service_data = ProjectService.duplicate_project(old_name, new_name, user_id=user_id)
 
     if service_response == 201:
         data = {'message': 'Project duplicated successfully', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
     else:
-        try_response_error_codes(service_response)
+        return try_response_error_codes(service_response)
 
 
 @app.route('/deleteProject', methods=['DELETE'])
 def delete_project():
+    user_id = get_current_user_id()
+    if not user_id:
+        return try_response_error_codes(401)
+
     project_name = request.form.get("project_name")
 
-    service_response, service_data = ProjectService.delete_project(project_name)
+    service_response, service_data = ProjectService.delete_project(project_name, user_id=user_id)
 
     if service_response == 200:
         data = {'message': 'Project deleted successfully', 'code': 'SUCCESS'}
         return make_response(jsonify(data), 200)
     else:
-        try_response_error_codes(service_response)
+        return try_response_error_codes(service_response)
 
 
 @app.route('/getAllProjects', methods=['GET'])
 def get_all_projects():
+    user_id = get_current_user_id()
+    if not user_id:
+        return try_response_error_codes(401)
 
-    service_response, service_data = ProjectService.get_all_projects()
+    service_response, service_data = ProjectService.get_all_projects(owner_id=user_id)
     LoggerService.info(f"Get all projects response code: {service_response}")
     LoggerService.info(f"Get all projects data: {service_data}")
 
@@ -423,7 +473,7 @@ def get_all_projects():
         data = {'projects': service_data, 'code': 'SUCCESS'}
         return make_response(jsonify(data), 201)
     else:
-        try_response_error_codes(service_response)
+        return try_response_error_codes(service_response)
 
 
 @app.route('/generate_iframe', methods=['GET'])
@@ -435,7 +485,7 @@ def generate_iframe():
     if service_response == 200:
         return make_response(jsonify({'iframe_code': service_data, 'message': 'Iframe generated successfully', 'code': 'SUCCESS'}), 200)
     else:
-        try_response_error_codes(service_response)
+        return try_response_error_codes(service_response)
 
 
 @app.route("/login", methods=["GET","POST"])
@@ -448,14 +498,14 @@ def login():
 
     if g:
         # User already has a session, we can skip password check if we want, or validate the token
-        return make_response(jsonify({'message': 'Already logged in', 'code': 'SUCCESS'}), 200)
+        return make_response(jsonify({'message': 'Already logged in', 'code': 'SUCCESS', 'user_id': str(g)}), 200)
 
     service_response, service_data = account_service.try_login(g, name, password)
     LoggerService.info(f"Login response code: {service_response}")
 
     if service_response == 201:
         session['logged_in_id'] = service_data
-        data = {'message': 'Logged in sucessfuly', 'code': 'SUCCESS'}
+        data = {'message': 'Logged in sucessfuly', 'code': 'SUCCESS', 'user_id': service_data}
         return make_response(jsonify(data), 201)
     else:
         return try_response_error_codes(service_response)
@@ -486,6 +536,8 @@ def register():
 def try_response_error_codes(service_response):
     if service_response == 401:
         return abort(401, description="Unauthorized - Invalid credentials")
+    elif service_response == 403:
+        return abort(403, description="Forbidden - You do not have permission for this project")
     elif service_response == 404:
         return abort(404, description=config["server_responses"]["not_found"])
     elif service_response == 409:

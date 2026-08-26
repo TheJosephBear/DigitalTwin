@@ -22,8 +22,46 @@ class ProjectService:
         cls.repo = repository
 
     @staticmethod
-    def upload_image(project_name, asset_hash, files):
+    def get_project_owner(project_name, repo=None):
+        r = repo or ProjectService.repo
+        if r:
+            try:
+                doc = r.read_record(ProjectService.PROJECT_COLLECTION, {"projectName": project_name})
+                if not doc:
+                    doc = r.read_record(ProjectService.PROJECT_COLLECTION, {"name": project_name})
+                if doc and doc.get("owner"):
+                    return str(doc.get("owner"))
+            except Exception as err:
+                LoggerService.error(f"Error checking project owner in Mongo: {err}")
+
+        # Fallback to saveData.txt
         try:
+            project_path = os.path.join(ProjectService.projects_root, project_name)
+            save_path = os.path.join(project_path, "saveData.txt")
+            if os.path.exists(save_path):
+                with open(save_path, "r", encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if content:
+                        data = json.loads(content)
+                        return str(data.get("owner", ""))
+        except Exception:
+            pass
+
+        return ""
+
+    @staticmethod
+    def is_project_owner(project_name, user_id, repo=None):
+        if not user_id:
+            return False
+        owner = ProjectService.get_project_owner(project_name, repo=repo)
+        return str(owner) == str(user_id)
+
+    @staticmethod
+    def upload_image(project_name, asset_hash, files, user_id=None):
+        try:
+            if user_id and not ProjectService.is_project_owner(project_name, user_id):
+                return 403, "Forbidden"
+
             project = ProjectService.load_project(project_name)
             # Create a specific folder for this image hash inside the project
             image_folder = os.path.join(project.project_dir, 'images', asset_hash)
@@ -61,8 +99,11 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def upload_preview_image(project_name, file):
+    def upload_preview_image(project_name, file, user_id=None):
         try:
+            if user_id and not ProjectService.is_project_owner(project_name, user_id):
+                return 403, "Forbidden"
+
             project = ProjectService.load_project(project_name)
             if not file or file.filename == '':
                 return 400, "No valid file provided"
@@ -102,18 +143,44 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def upload_editor_data(name, data):
+    def upload_editor_data(name, data, user_id=None):
         try:
+            if user_id and not ProjectService.is_project_owner(name, user_id):
+                return 403, "Forbidden"
+
             project = ProjectService.load_project(name)
             file_path = project.get_save_data_path()
+
+            # Preserve owner if missing in data
+            existing_owner = ProjectService.get_project_owner(name)
+            try:
+                json_data = json.loads(data)
+                if not json_data.get("owner") and existing_owner:
+                    json_data["owner"] = existing_owner
+                data_to_write = json.dumps(json_data)
+            except Exception:
+                data_to_write = data
+
             with open(file_path, 'w', encoding='utf-8') as file:
-                file.write(data)
+                file.write(data_to_write)
+
+            if ProjectService.repo:
+                try:
+                    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                    ProjectService.repo.update_record(
+                        ProjectService.PROJECT_COLLECTION,
+                        {"projectName": name},
+                        {"updated_at": now}
+                    )
+                except Exception as mongo_err:
+                    LoggerService.error(f"Error updating project in Mongo: {mongo_err}")
+
             return 200, None
         except Exception as e:
             return 500, None
 
     @staticmethod
-    def upload_model(project_name, asset_hash, files):
+    def upload_model(project_name, asset_hash, files, user_id=None):
         """
         Uploads all files for a specific asset into the project.
         Creates a folder named after asset_hash inside the project's models directory.
@@ -125,6 +192,9 @@ class ProjectService:
             return 400, None
 
         try:
+            if user_id and not ProjectService.is_project_owner(project_name, user_id):
+                return 403, "Forbidden"
+
             # Ensure the project exists
             project = ProjectService.load_project(project_name)
             LoggerService.info(f"Uploading model files for project: {project_name}, asset hash: {asset_hash}, number of files: {len(files)}")
@@ -212,12 +282,15 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def upload_survey_data(project_name, data, repo=None):
+    def upload_survey_data(project_name, data, user_id=None, repo=None):
         """Uploads or updates the survey data in MongoDB."""
         try:
             r = repo or ProjectService.repo
             if not r:
                 return 500, "Repository not initialized"
+
+            if user_id and not ProjectService.is_project_owner(project_name, user_id, repo=r):
+                return 403, "Forbidden"
 
             # Parse data if it's a string
             if isinstance(data, str):
@@ -300,12 +373,15 @@ class ProjectService:
             return 500, str(e)
 
     @staticmethod
-    def download_survey_responses(project_name, repo=None):
+    def download_survey_responses(project_name, user_id=None, repo=None):
         """Retrieves all survey responses for a project from MongoDB."""
         try:
             r = repo or ProjectService.repo
             if not r:
                 return 500, None
+
+            if user_id and not ProjectService.is_project_owner(project_name, user_id, repo=r):
+                return 403, None
 
             query = {"project_name": project_name}
             collection = r.read_all_records(ProjectService.SURVEY_RESPONSES_COLLECTION)
@@ -359,12 +435,15 @@ class ProjectService:
         return resolve(data)
 
     @staticmethod
-    def export_survey_responses_csv(project_name, repo=None):
+    def export_survey_responses_csv(project_name, user_id=None, repo=None):
         """Generates a CSV file formatted for Excel containing all submitted survey responses."""
         try:
             r = repo or ProjectService.repo
             if not r:
                 return 500, "Repository not initialized"
+
+            if user_id and not ProjectService.is_project_owner(project_name, user_id, repo=r):
+                return 403, "Forbidden"
 
             # 1. Fetch survey definition
             status, survey_data = ProjectService.download_survey_data(project_name, repo=r)
@@ -638,9 +717,12 @@ class ProjectService:
 
 
     @staticmethod
-    def delete_project(name):
+    def delete_project(name, user_id=None):
         """Delete the project directory and its contents."""
         try:
+            if user_id and not ProjectService.is_project_owner(name, user_id):
+                return 403, "Forbidden"
+
             project_path = os.path.join(ProjectService.projects_root, name)
             if os.path.exists(project_path):
                 shutil.rmtree(project_path)
@@ -660,8 +742,11 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def edit_project_name(old_name, new_name):
+    def edit_project_name(old_name, new_name, user_id=None):
         try:
+            if user_id and not ProjectService.is_project_owner(old_name, user_id):
+                return 403, "Forbidden"
+
             old_path = os.path.join(ProjectService.projects_root, old_name)
             new_path = os.path.join(ProjectService.projects_root, new_name)
 
@@ -701,8 +786,11 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def edit_project_metadata(old_name, new_name, description, image_id):
+    def edit_project_metadata(old_name, new_name, description, image_id, user_id=None):
         try:
+            if user_id and not ProjectService.is_project_owner(old_name, user_id):
+                return 403, "Forbidden"
+
             # Helper function to strip forbidden Windows characters for folder paths
             def sanitize_folder_name(name):
                 return re.sub(r'[\\/*?:"<>|]', "", name).strip()
@@ -790,7 +878,10 @@ class ProjectService:
             raise FileNotFoundError(f"Save data for project {name} not found")
 
     @staticmethod
-    def duplicate_project(old_name, new_name):
+    def duplicate_project(old_name, new_name, user_id=None):
+        if user_id and not ProjectService.is_project_owner(old_name, user_id):
+            return 403, "Forbidden"
+
         root = ProjectService.projects_root
         old_path = os.path.join(root, old_name)
 
@@ -812,7 +903,7 @@ class ProjectService:
         new_project_id = str(uuid.uuid4())
         desc = ""
         img_id = ""
-        owner = ""
+        owner = str(user_id) if user_id else ""
         if os.path.exists(save_path):
             with open(save_path, "r+", encoding='utf-8') as f:
                 data = json.load(f)
@@ -820,7 +911,9 @@ class ProjectService:
                 data["projectId"] = new_project_id
                 desc = data.get("projectDescription", "")
                 img_id = data.get("projectImageID", "")
-                owner = data.get("owner", "")
+                if not owner:
+                    owner = data.get("owner", "")
+                data["owner"] = owner
                 f.seek(0)
                 f.truncate()
                 json.dump(data, f, indent=4)
@@ -848,12 +941,17 @@ class ProjectService:
 
 
     @staticmethod
-    def get_all_projects():
+    def get_all_projects(owner_id=None):
         try:
+            if not owner_id:
+                return 200, []
+
+            owner_str = str(owner_id)
+
             if ProjectService.repo:
                 try:
                     collection = ProjectService.repo.read_all_records(ProjectService.PROJECT_COLLECTION)
-                    records = collection.find()
+                    records = collection.find({"owner": owner_str})
                     projects = []
                     for doc in records:
                         projects.append({
@@ -880,13 +978,14 @@ class ProjectService:
                     with open(save_path, "r", encoding='utf-8') as f:
                         try:
                             data = json.load(f)
-                            projects.append({
-                                "projectName": data.get("projectName"),
-                                "projectId": data.get("projectId"),
-                                "projectDescription": data.get("projectDescription", ""),
-                                "projectImageID": data.get("projectImageID", ""),
-                                "owner": data.get("owner", "")
-                            })
+                            if str(data.get("owner", "")) == owner_str:
+                                projects.append({
+                                    "projectName": data.get("projectName"),
+                                    "projectId": data.get("projectId"),
+                                    "projectDescription": data.get("projectDescription", ""),
+                                    "projectImageID": data.get("projectImageID", ""),
+                                    "owner": data.get("owner", "")
+                                })
                         except:
                             continue
 
