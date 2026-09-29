@@ -466,6 +466,25 @@ class ProjectService:
         return resolve(data)
 
     @staticmethod
+    def image_choice_letter(idx):
+        """0 -> A, 1 -> B, ..., 25 -> Z, 26 -> AA (mirrors AnswerImage.GetLetter in Unity)."""
+        if idx is None or idx < 0:
+            return ""
+        letter = ""
+        idx += 1
+        while idx > 0:
+            idx, rem = divmod(idx - 1, 26)
+            letter = chr(ord("A") + rem) + letter
+        return letter
+
+    @staticmethod
+    def image_choice_label(idx, ans_obj):
+        """Returns 'B' or 'B – caption' (mirrors AnswerImage.GetLabel in Unity)."""
+        letter = ProjectService.image_choice_letter(idx)
+        caption = ((ans_obj or {}).get("Text") or (ans_obj or {}).get("text") or "").strip()
+        return f"{letter} – {caption}" if caption else letter
+
+    @staticmethod
     def export_survey_responses_csv(project_name, user_id=None, repo=None):
         """Generates a CSV file formatted for Excel containing all submitted survey responses."""
         try:
@@ -628,6 +647,14 @@ class ProjectService:
                         # Text questions (ShortAnswer=2, Paragraph=3)
                         if q_type in [2, 3, "ShortAnswer", "Paragraph"] or (not answers and resp_text):
                             row_values.append(resp_text)
+                        # Image choice (7): letter + optional caption, never the image file name
+                        elif q_type in [7, "ImageChoice"]:
+                            label = resp.get("SelectedLabel") or resp.get("selectedLabel") or ""
+                            if not label and sel_idx is not None and sel_idx >= 0:
+                                # Older responses without SelectedLabel: derive it from the survey
+                                ans_obj = answers[sel_idx] if 0 <= sel_idx < len(answers) else {}
+                                label = ProjectService.image_choice_label(sel_idx, ans_obj)
+                            row_values.append(label)
                         elif sel_indices:
                             ans_texts = []
                             for idx in sel_indices:
