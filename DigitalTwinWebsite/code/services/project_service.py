@@ -4,6 +4,8 @@ import uuid
 import json
 import re
 import datetime
+import csv
+import io
 from email.header import decode_header
 from services.logger_service import LoggerService
 
@@ -11,6 +13,7 @@ class ProjectService:
 
     projects_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'projects'))
     SURVEY_COLLECTION = "surveys"
+    SURVEY_RESPONSES_COLLECTION = "survey_responses"
     PROJECT_COLLECTION = "projects"
     repo = None
 
@@ -19,8 +22,46 @@ class ProjectService:
         cls.repo = repository
 
     @staticmethod
-    def upload_image(project_name, asset_hash, files):
+    def get_project_owner(project_name, repo=None):
+        r = repo or ProjectService.repo
+        if r:
+            try:
+                doc = r.read_record(ProjectService.PROJECT_COLLECTION, {"projectName": project_name})
+                if not doc:
+                    doc = r.read_record(ProjectService.PROJECT_COLLECTION, {"name": project_name})
+                if doc and doc.get("owner"):
+                    return str(doc.get("owner"))
+            except Exception as err:
+                LoggerService.error(f"Error checking project owner in Mongo: {err}")
+
+        # Fallback to saveData.txt
         try:
+            project_path = os.path.join(ProjectService.projects_root, project_name)
+            save_path = os.path.join(project_path, "saveData.txt")
+            if os.path.exists(save_path):
+                with open(save_path, "r", encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if content:
+                        data = json.loads(content)
+                        return str(data.get("owner", ""))
+        except Exception:
+            pass
+
+        return ""
+
+    @staticmethod
+    def is_project_owner(project_name, user_id, repo=None):
+        if not user_id:
+            return False
+        owner = ProjectService.get_project_owner(project_name, repo=repo)
+        return str(owner) == str(user_id)
+
+    @staticmethod
+    def upload_image(project_name, asset_hash, files, user_id=None):
+        try:
+            if user_id and not ProjectService.is_project_owner(project_name, user_id):
+                return 403, "Forbidden"
+
             project = ProjectService.load_project(project_name)
             # Create a specific folder for this image hash inside the project
             image_folder = os.path.join(project.project_dir, 'images', asset_hash)
@@ -58,8 +99,11 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def upload_preview_image(project_name, file):
+    def upload_preview_image(project_name, file, user_id=None):
         try:
+            if user_id and not ProjectService.is_project_owner(project_name, user_id):
+                return 403, "Forbidden"
+
             project = ProjectService.load_project(project_name)
             if not file or file.filename == '':
                 return 400, "No valid file provided"
@@ -99,18 +143,44 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def upload_editor_data(name, data):
+    def upload_editor_data(name, data, user_id=None):
         try:
+            if user_id and not ProjectService.is_project_owner(name, user_id):
+                return 403, "Forbidden"
+
             project = ProjectService.load_project(name)
             file_path = project.get_save_data_path()
+
+            # Preserve owner if missing in data
+            existing_owner = ProjectService.get_project_owner(name)
+            try:
+                json_data = json.loads(data)
+                if not json_data.get("owner") and existing_owner:
+                    json_data["owner"] = existing_owner
+                data_to_write = json.dumps(json_data)
+            except Exception:
+                data_to_write = data
+
             with open(file_path, 'w', encoding='utf-8') as file:
-                file.write(data)
+                file.write(data_to_write)
+
+            if ProjectService.repo:
+                try:
+                    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                    ProjectService.repo.update_record(
+                        ProjectService.PROJECT_COLLECTION,
+                        {"projectName": name},
+                        {"updated_at": now}
+                    )
+                except Exception as mongo_err:
+                    LoggerService.error(f"Error updating project in Mongo: {mongo_err}")
+
             return 200, None
         except Exception as e:
             return 500, None
 
     @staticmethod
-    def upload_model(project_name, asset_hash, files):
+    def upload_model(project_name, asset_hash, files, user_id=None):
         """
         Uploads all files for a specific asset into the project.
         Creates a folder named after asset_hash inside the project's models directory.
@@ -122,6 +192,9 @@ class ProjectService:
             return 400, None
 
         try:
+            if user_id and not ProjectService.is_project_owner(project_name, user_id):
+                return 403, "Forbidden"
+
             # Ensure the project exists
             project = ProjectService.load_project(project_name)
             LoggerService.info(f"Uploading model files for project: {project_name}, asset hash: {asset_hash}, number of files: {len(files)}")
@@ -209,12 +282,15 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def upload_survey_data(project_name, data, repo=None):
+    def upload_survey_data(project_name, data, user_id=None, repo=None):
         """Uploads or updates the survey data in MongoDB."""
         try:
             r = repo or ProjectService.repo
             if not r:
                 return 500, "Repository not initialized"
+
+            if user_id and not ProjectService.is_project_owner(project_name, user_id, repo=r):
+                return 403, "Forbidden"
 
             # Parse data if it's a string
             if isinstance(data, str):
@@ -231,15 +307,33 @@ class ProjectService:
                 "survey_data": json_data
             }
 
+            # Check if survey contains any questions
+            questions = []
+            if isinstance(json_data, dict):
+                questions = json_data.get("Questions") or json_data.get("questions") or []
+            elif isinstance(json_data, list):
+                questions = json_data
+            has_survey = isinstance(questions, list) and len(questions) > 0
+
             # Check if it exists to decide between update or create
             existing = r.read_record(ProjectService.SURVEY_COLLECTION, query)
 
             if existing:
                 r.update_record(ProjectService.SURVEY_COLLECTION, query, survey_document)
-                return 200, "Survey updated"
+                res_code, res_msg = 200, "Survey updated"
             else:
                 r.create_record(ProjectService.SURVEY_COLLECTION, survey_document)
-                return 201, "Survey created"
+                res_code, res_msg = 201, "Survey created"
+
+            # Update project document with hasSurvey status
+            try:
+                proj_res = r.update_record(ProjectService.PROJECT_COLLECTION, {"projectName": project_name}, {"hasSurvey": has_survey})
+                if proj_res.get("matched_count", 0) == 0:
+                    r.update_record(ProjectService.PROJECT_COLLECTION, {"name": project_name}, {"hasSurvey": has_survey})
+            except Exception as proj_err:
+                LoggerService.error(f"Error updating hasSurvey in project doc: {proj_err}")
+
+            return res_code, res_msg
 
         except json.JSONDecodeError:
             return 400, "Invalid JSON format"
@@ -267,6 +361,334 @@ class ProjectService:
         except Exception as e:
             print(f"Error fetching survey: {e}")
             return 500, None
+
+    @staticmethod
+    def upload_survey_response(project_name, data, repo=None):
+        """Uploads a survey response/submission into MongoDB."""
+        try:
+            r = repo or ProjectService.repo
+            if not r:
+                return 500, "Repository not initialized"
+
+            if isinstance(data, str):
+                json_data = json.loads(data)
+            else:
+                json_data = data
+
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            response_document = {
+                "project_name": project_name,
+                "submitted_at": timestamp,
+                "response_data": json_data
+            }
+
+            r.create_record(ProjectService.SURVEY_RESPONSES_COLLECTION, response_document)
+
+            # Atomically increment respondent count and set hasSurvey to True
+            try:
+                update_op = {
+                    "$inc": {"respondentCount": 1},
+                    "$set": {"hasSurvey": True}
+                }
+                proj_res = r.update_record(ProjectService.PROJECT_COLLECTION, {"projectName": project_name}, update_op)
+                if proj_res.get("matched_count", 0) == 0:
+                    r.update_record(ProjectService.PROJECT_COLLECTION, {"name": project_name}, update_op)
+            except Exception as proj_err:
+                LoggerService.error(f"Error updating respondentCount in project doc: {proj_err}")
+
+            return 201, "Response submitted successfully"
+        except json.JSONDecodeError:
+            return 400, "Invalid JSON format"
+        except Exception as e:
+            print(f"Error saving survey response to Mongo: {e}")
+            return 500, str(e)
+
+    @staticmethod
+    def download_survey_responses(project_name, user_id=None, repo=None):
+        """Retrieves all survey responses for a project from MongoDB."""
+        try:
+            r = repo or ProjectService.repo
+            if not r:
+                return 500, None
+
+            if user_id and not ProjectService.is_project_owner(project_name, user_id, repo=r):
+                return 403, None
+
+            query = {"project_name": project_name}
+            collection = r.read_all_records(ProjectService.SURVEY_RESPONSES_COLLECTION)
+            records = list(collection.find(query))
+
+            for rec in records:
+                if "_id" in rec:
+                    rec["_id"] = str(rec["_id"])
+
+            return 200, records
+        except Exception as e:
+            print(f"Error fetching survey responses: {e}")
+            return 500, None
+
+    @staticmethod
+    def dereference_unity_json(data):
+        """Resolves Unity [SerializeReference] JSON structure into a regular nested Python dict/list."""
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                return data
+
+        if not isinstance(data, dict):
+            return data
+
+        ref_ids = {}
+        if "references" in data and isinstance(data["references"], dict):
+            ref_list = data["references"].get("RefIds", [])
+            for item in ref_list:
+                if isinstance(item, dict) and "rid" in item:
+                    ref_ids[item["rid"]] = item.get("data", {})
+
+        def resolve(node, visited=None):
+            if visited is None:
+                visited = set()
+            if isinstance(node, dict):
+                if "rid" in node and len(node) == 1 and node["rid"] in ref_ids:
+                    rid = node["rid"]
+                    if rid in visited:
+                        return {}
+                    visited.add(rid)
+                    resolved = resolve(ref_ids[rid], visited)
+                    visited.remove(rid)
+                    return resolved
+                return {k: resolve(v, visited) for k, v in node.items()}
+            elif isinstance(node, list):
+                return [resolve(elem, visited) for elem in node]
+            return node
+
+        return resolve(data)
+
+    @staticmethod
+    def image_choice_letter(idx):
+        """0 -> A, 1 -> B, ..., 25 -> Z, 26 -> AA (mirrors AnswerImage.GetLetter in Unity)."""
+        if idx is None or idx < 0:
+            return ""
+        letter = ""
+        idx += 1
+        while idx > 0:
+            idx, rem = divmod(idx - 1, 26)
+            letter = chr(ord("A") + rem) + letter
+        return letter
+
+    @staticmethod
+    def image_choice_label(idx, ans_obj):
+        """Returns 'B' or 'B – caption' (mirrors AnswerImage.GetLabel in Unity)."""
+        letter = ProjectService.image_choice_letter(idx)
+        caption = ((ans_obj or {}).get("Text") or (ans_obj or {}).get("text") or "").strip()
+        return f"{letter} – {caption}" if caption else letter
+
+    @staticmethod
+    def export_survey_responses_csv(project_name, user_id=None, repo=None):
+        """Generates a CSV file formatted for Excel containing all submitted survey responses."""
+        try:
+            r = repo or ProjectService.repo
+            if not r:
+                return 500, "Repository not initialized"
+
+            if user_id and not ProjectService.is_project_owner(project_name, user_id, repo=r):
+                return 403, "Forbidden"
+
+            # 1. Fetch survey definition
+            status, survey_data = ProjectService.download_survey_data(project_name, repo=r)
+            if status != 200 or not survey_data:
+                survey_data = {}
+
+            # Dereference Unity [SerializeReference] JSON structures
+            survey_data = ProjectService.dereference_unity_json(survey_data)
+
+            questions = survey_data.get("Questions") or survey_data.get("questions") or []
+
+            # 2. Fetch responses
+            query = {"project_name": project_name}
+            collection = r.read_all_records(ProjectService.SURVEY_RESPONSES_COLLECTION)
+            submissions = list(collection.find(query))
+
+            if not submissions:
+                return 404, "No responses found for this project"
+
+            # 3. Build CSV headers and questions layout
+            headers = ["Čas odeslání", "Název průzkumu"]
+            column_descriptors = []
+
+            for q_idx, q in enumerate(questions):
+                q_id = q.get("Id") if q.get("Id") is not None else q.get("id")
+                if q_id is None:
+                    q_id = q_idx
+
+                raw_title = q.get("Title") or q.get("title")
+                q_title = raw_title.strip() if (raw_title and isinstance(raw_title, str) and raw_title.strip()) else f"Otázka {q_idx + 1}"
+                q_type = q.get("QuestionType") if q.get("QuestionType") is not None else q.get("questionType")
+
+                # Numeric or string enum handling
+                # QuestionType: 5=MultipleChoiceGrid, 6=CheckboxGrid, 8=LinearScale
+                is_grid = q_type in [5, 6, "MultipleChoiceGrid", "CheckboxGrid"]
+                is_scale = q_type in [8, "LinearScale"]
+
+                if is_grid:
+                    rows = q.get("Rows") or q.get("rows") or []
+                    for r_idx, row_name in enumerate(rows):
+                        headers.append(f"{q_title} [{row_name}]")
+                        column_descriptors.append({
+                            "q_id": q_id,
+                            "type": "grid",
+                            "q_obj": q,
+                            "row_idx": r_idx
+                        })
+                elif is_scale:
+                    answers = q.get("Answers") or q.get("answers") or []
+                    if len(answers) > 1:
+                        for r_idx, ans in enumerate(answers):
+                            ans_txt = ans.get("Text") or ans.get("text") or f"Položka {r_idx+1}"
+                            headers.append(f"{q_title} [{ans_txt}]")
+                            column_descriptors.append({
+                                "q_id": q_id,
+                                "type": "scale",
+                                "q_obj": q,
+                                "row_idx": r_idx
+                            })
+                    else:
+                        headers.append(q_title)
+                        column_descriptors.append({
+                            "q_id": q_id,
+                            "type": "scale",
+                            "q_obj": q,
+                            "row_idx": 0
+                        })
+                else:
+                    headers.append(q_title)
+                    column_descriptors.append({
+                        "q_id": q_id,
+                        "type": "standard",
+                        "q_obj": q
+                    })
+
+            # If survey had no questions defined, build headers dynamically from response data
+            if not column_descriptors:
+                headers = ["Čas odeslání", "Název průzkumu", "Data odpovědí"]
+
+            output = io.StringIO()
+            writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL)
+            writer.writerow(headers)
+
+            # 4. Write data rows
+            for sub in submissions:
+                submitted_at = sub.get("submitted_at", "")
+                data = sub.get("response_data", {})
+                data = ProjectService.dereference_unity_json(data)
+
+                survey_name = data.get("SurveyName") or data.get("surveyName") or project_name
+                timestamp = data.get("Timestamp") or data.get("timestamp") or submitted_at
+
+                if not column_descriptors:
+                    writer.writerow([timestamp, survey_name, json.dumps(data, ensure_ascii=False)])
+                    continue
+
+                responses = data.get("Responses") or data.get("responses") or []
+
+                row_values = [timestamp, survey_name]
+
+                for desc in column_descriptors:
+                    q_id = desc["q_id"]
+                    q_obj = desc["q_obj"]
+                    col_type = desc["type"]
+
+                    resp = next((r for r in responses if (r.get("QuestionId") == q_id or r.get("questionId") == q_id or r.get("Id") == q_id)), None)
+                    if not resp:
+                        row_values.append("")
+                        continue
+
+                    if col_type == "grid":
+                        row_idx = desc["row_idx"]
+                        grid_resps = resp.get("GridResponses") or resp.get("gridResponses") or []
+                        row_resp = next((gr for gr in grid_resps if (gr.get("RowIdx") == row_idx or gr.get("rowIdx") == row_idx)), None)
+
+                        if not row_resp:
+                            row_values.append("")
+                        else:
+                            cols = q_obj.get("Columns") or q_obj.get("columns") or []
+                            sel_col = row_resp.get("SelectedColumnIdx") if row_resp.get("SelectedColumnIdx") is not None else row_resp.get("selectedColumnIdx", -1)
+                            sel_cols = row_resp.get("SelectedColumnIndices") or row_resp.get("selectedColumnIndices") or []
+
+                            if sel_cols:
+                                txts = [cols[c] if 0 <= c < len(cols) else str(c+1) for c in sel_cols]
+                                row_values.append(", ".join(txts))
+                            elif sel_col is not None and sel_col >= 0:
+                                txt = cols[sel_col] if 0 <= sel_col < len(cols) else str(sel_col+1)
+                                row_values.append(txt)
+                            else:
+                                row_values.append("")
+
+                    elif col_type == "scale":
+                        row_idx = desc["row_idx"]
+                        scale_resps = resp.get("ScaleResponses") or resp.get("scaleResponses") or []
+                        scale_resp = next((sr for sr in scale_resps if (sr.get("RowIdx") == row_idx or sr.get("rowIdx") == row_idx)), None)
+
+                        if scale_resp:
+                            val = scale_resp.get("Value") if scale_resp.get("Value") is not None else scale_resp.get("value", "")
+                            row_values.append(str(val))
+                        else:
+                            sel_idx = resp.get("SelectedIdx") if resp.get("SelectedIdx") is not None else resp.get("selectedIdx", -1)
+                            row_values.append(str(sel_idx) if sel_idx is not None and sel_idx >= 0 else "")
+
+                    else: # Standard question (Choice, Text, Dropdown, Image)
+                        resp_text = resp.get("ResponseText") or resp.get("responseText") or ""
+                        sel_idx = resp.get("SelectedIdx") if resp.get("SelectedIdx") is not None else resp.get("selectedIdx", -1)
+                        sel_indices = resp.get("SelectedIndices") or resp.get("selectedIndices") or []
+                        answers = q_obj.get("Answers") or q_obj.get("answers") or []
+                        q_type = q_obj.get("QuestionType") if q_obj.get("QuestionType") is not None else q_obj.get("questionType")
+
+                        # Text questions (ShortAnswer=2, Paragraph=3)
+                        if q_type in [2, 3, "ShortAnswer", "Paragraph"] or (not answers and resp_text):
+                            row_values.append(resp_text)
+                        # Image choice (7): letter + optional caption, never the image file name
+                        elif q_type in [7, "ImageChoice"]:
+                            label = resp.get("SelectedLabel") or resp.get("selectedLabel") or ""
+                            if not label and sel_idx is not None and sel_idx >= 0:
+                                # Older responses without SelectedLabel: derive it from the survey
+                                ans_obj = answers[sel_idx] if 0 <= sel_idx < len(answers) else {}
+                                label = ProjectService.image_choice_label(sel_idx, ans_obj)
+                            row_values.append(label)
+                        elif sel_indices:
+                            ans_texts = []
+                            for idx in sel_indices:
+                                if 0 <= idx < len(answers):
+                                    ans_obj = answers[idx]
+                                    txt = ans_obj.get("Text") or ans_obj.get("text") or ans_obj.get("ImageID") or f"Možnost {idx+1}"
+                                    ans_texts.append(txt)
+                                else:
+                                    ans_texts.append(str(idx+1))
+                            if resp_text:
+                                ans_texts.append(resp_text)
+                            row_values.append("; ".join(ans_texts))
+                        elif sel_idx is not None and sel_idx >= 0:
+                            ans_text = ""
+                            if 0 <= sel_idx < len(answers):
+                                ans_obj = answers[sel_idx]
+                                ans_text = ans_obj.get("Text") or ans_obj.get("text") or ans_obj.get("ImageID") or f"Možnost {sel_idx+1}"
+                            if resp_text:
+                                ans_text = f"{ans_text} ({resp_text})" if ans_text else resp_text
+                            row_values.append(ans_text if ans_text else (resp_text if resp_text else ""))
+                        elif resp_text:
+                            row_values.append(resp_text)
+                        else:
+                            row_values.append("")
+
+                writer.writerow(row_values)
+
+            # Prepend UTF-8 BOM so Excel opens Czech characters properly
+            csv_content = '\ufeff' + output.getvalue()
+            return 200, csv_content
+
+        except Exception as e:
+            print(f"Error exporting survey responses CSV: {e}")
+            return 500, str(e)
 
     @staticmethod
     def download_data(name):
@@ -314,7 +736,9 @@ class ProjectService:
                 "projectId": project_id,
                 "projectDescription": description,
                 "projectImageID": image_id,
-                "owner": owner
+                "owner": owner,
+                "hasSurvey": False,
+                "respondentCount": 0
             }
             with open(file_path, "w", encoding='utf-8') as file:
                 file.write(json.dumps(data))
@@ -329,6 +753,8 @@ class ProjectService:
                         "projectDescription": description,
                         "projectImageID": image_id,
                         "owner": owner,
+                        "hasSurvey": False,
+                        "respondentCount": 0,
                         "created_at": now,
                         "updated_at": now
                     }
@@ -340,6 +766,10 @@ class ProjectService:
                     if existing:
                         if not owner and "owner" in existing:
                             project_doc["owner"] = existing["owner"]
+                        if "hasSurvey" in existing:
+                            project_doc["hasSurvey"] = existing["hasSurvey"]
+                        if "respondentCount" in existing:
+                            project_doc["respondentCount"] = existing["respondentCount"]
                         ProjectService.repo.update_record(ProjectService.PROJECT_COLLECTION, {"_id": existing["_id"]}, project_doc)
                     else:
                         ProjectService.repo.create_record(ProjectService.PROJECT_COLLECTION, project_doc)
@@ -353,9 +783,12 @@ class ProjectService:
 
 
     @staticmethod
-    def delete_project(name):
+    def delete_project(name, user_id=None):
         """Delete the project directory and its contents."""
         try:
+            if user_id and not ProjectService.is_project_owner(name, user_id):
+                return 403, "Forbidden"
+
             project_path = os.path.join(ProjectService.projects_root, name)
             if os.path.exists(project_path):
                 shutil.rmtree(project_path)
@@ -375,8 +808,11 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def edit_project_name(old_name, new_name):
+    def edit_project_name(old_name, new_name, user_id=None):
         try:
+            if user_id and not ProjectService.is_project_owner(old_name, user_id):
+                return 403, "Forbidden"
+
             old_path = os.path.join(ProjectService.projects_root, old_name)
             new_path = os.path.join(ProjectService.projects_root, new_name)
 
@@ -416,8 +852,11 @@ class ProjectService:
             return 500, None
 
     @staticmethod
-    def edit_project_metadata(old_name, new_name, description, image_id):
+    def edit_project_metadata(old_name, new_name, description, image_id, user_id=None):
         try:
+            if user_id and not ProjectService.is_project_owner(old_name, user_id):
+                return 403, "Forbidden"
+
             # Helper function to strip forbidden Windows characters for folder paths
             def sanitize_folder_name(name):
                 return re.sub(r'[\\/*?:"<>|]', "", name).strip()
@@ -505,7 +944,10 @@ class ProjectService:
             raise FileNotFoundError(f"Save data for project {name} not found")
 
     @staticmethod
-    def duplicate_project(old_name, new_name):
+    def duplicate_project(old_name, new_name, user_id=None):
+        if user_id and not ProjectService.is_project_owner(old_name, user_id):
+            return 403, "Forbidden"
+
         root = ProjectService.projects_root
         old_path = os.path.join(root, old_name)
 
@@ -527,7 +969,8 @@ class ProjectService:
         new_project_id = str(uuid.uuid4())
         desc = ""
         img_id = ""
-        owner = ""
+        owner = str(user_id) if user_id else ""
+        has_survey_copied = False
         if os.path.exists(save_path):
             with open(save_path, "r+", encoding='utf-8') as f:
                 data = json.load(f)
@@ -535,13 +978,24 @@ class ProjectService:
                 data["projectId"] = new_project_id
                 desc = data.get("projectDescription", "")
                 img_id = data.get("projectImageID", "")
-                owner = data.get("owner", "")
+                if not owner:
+                    owner = data.get("owner", "")
+                data["owner"] = owner
+                has_survey_copied = bool(data.get("hasSurvey", False))
+                data["hasSurvey"] = has_survey_copied
+                data["respondentCount"] = 0
                 f.seek(0)
                 f.truncate()
                 json.dump(data, f, indent=4)
 
         if ProjectService.repo:
             try:
+                orig_doc = ProjectService.repo.read_record(ProjectService.PROJECT_COLLECTION, {"projectName": old_name})
+                if not orig_doc:
+                    orig_doc = ProjectService.repo.read_record(ProjectService.PROJECT_COLLECTION, {"name": old_name})
+                if orig_doc and "hasSurvey" in orig_doc:
+                    has_survey_copied = bool(orig_doc.get("hasSurvey", False))
+
                 now = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 new_doc = {
                     "name": new_name,
@@ -550,6 +1004,8 @@ class ProjectService:
                     "projectDescription": desc,
                     "projectImageID": img_id,
                     "owner": owner,
+                    "hasSurvey": has_survey_copied,
+                    "respondentCount": 0,
                     "created_at": now,
                     "updated_at": now
                 }
@@ -563,12 +1019,17 @@ class ProjectService:
 
 
     @staticmethod
-    def get_all_projects():
+    def get_all_projects(owner_id=None):
         try:
+            if not owner_id:
+                return 200, []
+
+            owner_str = str(owner_id)
+
             if ProjectService.repo:
                 try:
                     collection = ProjectService.repo.read_all_records(ProjectService.PROJECT_COLLECTION)
-                    records = collection.find()
+                    records = collection.find({"owner": owner_str})
                     projects = []
                     for doc in records:
                         projects.append({
@@ -576,7 +1037,9 @@ class ProjectService:
                             "projectId": doc.get("projectId", ""),
                             "projectDescription": doc.get("projectDescription", ""),
                             "projectImageID": doc.get("projectImageID", ""),
-                            "owner": doc.get("owner", "")
+                            "owner": doc.get("owner", ""),
+                            "hasSurvey": bool(doc.get("hasSurvey", False)),
+                            "respondentCount": int(doc.get("respondentCount", 0))
                         })
                     return 200, projects
                 except Exception as mongo_err:
@@ -595,13 +1058,16 @@ class ProjectService:
                     with open(save_path, "r", encoding='utf-8') as f:
                         try:
                             data = json.load(f)
-                            projects.append({
-                                "projectName": data.get("projectName"),
-                                "projectId": data.get("projectId"),
-                                "projectDescription": data.get("projectDescription", ""),
-                                "projectImageID": data.get("projectImageID", ""),
-                                "owner": data.get("owner", "")
-                            })
+                            if str(data.get("owner", "")) == owner_str:
+                                projects.append({
+                                    "projectName": data.get("projectName"),
+                                    "projectId": data.get("projectId"),
+                                    "projectDescription": data.get("projectDescription", ""),
+                                    "projectImageID": data.get("projectImageID", ""),
+                                    "owner": data.get("owner", ""),
+                                    "hasSurvey": bool(data.get("hasSurvey", False)),
+                                    "respondentCount": int(data.get("respondentCount", 0))
+                                })
                         except:
                             continue
 

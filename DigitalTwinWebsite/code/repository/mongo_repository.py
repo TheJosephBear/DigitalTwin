@@ -36,7 +36,11 @@ class MongoRepository(Repository):
     def update_record(self, collection_name: str, query: dict, update_data: dict):
         """Updates documents matching the query with new data."""
         self.connect_to_database()
-        result = self.db[collection_name].update_many(query, {"$set": update_data})
+        if any(isinstance(k, str) and k.startswith("$") for k in update_data.keys()):
+            update_op = update_data
+        else:
+            update_op = {"$set": update_data}
+        result = self.db[collection_name].update_many(query, update_op)
         return {"matched_count": result.matched_count, "modified_count": result.modified_count}
 
     def delete_record(self, collection_name: str, query: dict):

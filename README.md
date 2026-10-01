@@ -18,6 +18,14 @@ The application expects `.env.local` file like in `env.example`.
 
 ## Production Deployment
 
+### 1. Upload changes to server (Git-FTP)
+To upload changed files to the server:
+```bash
+git ftp push
+```
+> **Note**: For initial upload/setup, run `git ftp init` (or `git ftp catchup` if files already exist on the server).
+
+### 2. Server setup & Docker
 1. **Create `.env` file** in the project root:
    ```bash
    MONGO_USERNAME='username'
@@ -46,3 +54,11 @@ To follow live logs for the Flask container, run:
 ```bash
 docker-compose logs -f flask
 ```
+
+3. **Populate projects into MongoDB in Docker**:
+   To scan the projects folder and populate MongoDB (with an optional `--owner <owner_id>`):
+   ```bash
+   ./fill_mongo_projects_docker.sh
+   # or with a custom owner:
+   ./fill_mongo_projects_docker.sh --owner <user_id>
+   ```
