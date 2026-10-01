@@ -3,7 +3,7 @@ import os
 import argparse
 from dotenv import load_dotenv
 import tomli
-from flask_cors import CORS, cross_origin
+from flask_cors import CORS
 from services.project_service import ProjectService
 from services.account_service import AccountService
 from services.logger_service import LoggerService
@@ -35,18 +35,12 @@ load_dotenv(dotenv_path=env_file)
 # endregion
 
 app = Flask(__name__)
-# CORS configuration - allow web test client and Unity client
-CORS(app,
-     origins=[
-         "http://localhost:5000",      # Web test client
-         "http://localhost:5001",      # Unity client
-         "http://localhost:8050",      # Docker Web test client
-         "http://127.0.0.1:5000",      # Web test client
-         "http://127.0.0.1:5001",      # Unity client
-         "http://127.0.0.1:8050",      # Docker Web test client
-         "https://dtwin.rqa.cz/",      # Deployment
-     ],
-     supports_credentials=True)
+# CORS configuration - production allows only the deployment origin;
+# local dev (FLASK_ENV=local in .env.local) also allows localhost clients (web test client, Unity Build and Run) on any port
+CORS_ORIGINS = ["https://dtwin.rqa.cz"]
+if os.getenv("FLASK_ENV") == "local":
+    CORS_ORIGINS.append(r"http://(localhost|127\.0\.0\.1):\d+$")  # anchored: flask-cors uses re.match
+CORS(app, origins=CORS_ORIGINS, supports_credentials=True)
 app.secret_key = os.getenv("SECRET_KEY")
 
 config_path = os.path.join(os.path.dirname(__file__), "../conf.toml")
@@ -323,7 +317,6 @@ def downloadModels():
 
 
 @app.route('/list_model_files', methods=['GET'])
-@cross_origin(origin='http://127.0.0.1:5001')
 def list_model_files():
     project_name = request.args.get("project_name")
     asset_hash = request.args.get("asset_hash")
